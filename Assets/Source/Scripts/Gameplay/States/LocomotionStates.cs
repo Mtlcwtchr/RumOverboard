@@ -12,6 +12,7 @@ namespace RumOverboard.Gameplay.States
         public static readonly int Climbing = Animator.StringToHash("Climbing");
         public static readonly int Swimming = Animator.StringToHash("Swimming");
         public static readonly int Drinking = Animator.StringToHash("Drinking");
+        public static readonly int Steering = Animator.StringToHash("Steering");
     }
 
     /// <summary>Walking the deck. Full input-driven control, rum wobble, and jumping.</summary>
@@ -32,11 +33,16 @@ namespace RumOverboard.Gameplay.States
             // While grounded we keep refreshing coyote timer.
             ctx.CoyoteTimer = coyote;
 
+            // Velocity of the deck under our feet (0 on static ground). We move RELATIVE to it so the
+            // crew rides the ship — walking is added on top of the deck's own motion.
+            Vector3 pv = ctx.GroundVelocity;
+            bool onMovingDeck = pv.sqrMagnitude > 1e-4f;
+
             Vector3 wish = StateMovement.InputToWorld(ctx);
             wish = StateMovement.ApplyRumWobble(ctx, wish);
 
             Vector3 vel = ctx.Body.linearVelocity;
-            Vector2 currentPlanar = new Vector2(vel.x, vel.z);
+            Vector2 currentPlanar = new Vector2(vel.x - pv.x, vel.z - pv.z); // relative to deck
             Vector2 inputPlanar = new Vector2(wish.x, wish.z);
             float inputMagnitude = Mathf.Clamp01(inputPlanar.magnitude);
 
@@ -55,10 +61,14 @@ namespace RumOverboard.Gameplay.States
             else
                 nextDirection = Vector2.zero;
 
-            Vector2 nextPlanar = nextDirection * nextSpeed;
+            Vector2 nextPlanar = nextDirection * nextSpeed; // walking velocity relative to the deck
 
-            vel.x = nextPlanar.x;
-            vel.z = nextPlanar.y;
+            // Deck velocity + our own walking. Vertically ride the deck (heave) so waves don't fling
+            // us off; on static ground keep gravity-driven Y.
+            vel.x = pv.x + nextPlanar.x;
+            vel.z = pv.z + nextPlanar.y;
+            if (onMovingDeck)
+                vel.y = pv.y;
             ctx.Body.linearVelocity = vel;
 
             if (inputMagnitude > 0.05f)
@@ -68,13 +78,13 @@ namespace RumOverboard.Gameplay.States
             {
                 float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 20f;
                 vel = ctx.Body.linearVelocity;
-                vel.y = 0f; // stable jump height independent of tiny down/up drift
+                vel.y = onMovingDeck ? pv.y : 0f; // jump relative to the deck we're riding
                 ctx.Body.linearVelocity = vel;
                 ctx.Body.AddForce(Vector3.up * impulse, ForceMode.VelocityChange);
                 ctx.CoyoteTimer = 0f;
             }
 
-            ctx.PlanarSpeed = new Vector2(vel.x, vel.z).magnitude;
+            ctx.PlanarSpeed = nextPlanar.magnitude; // animation reflects walking, not ship drift
         }
 
         public override void Render(StateContext ctx)
@@ -189,6 +199,30 @@ namespace RumOverboard.Gameplay.States
         {
             // Animator params are applied centrally from replicated state in NetworkPlayer.Render().
         }
+    }
+
+    /// <summary>
+    /// Standing at the helm. The body is locked to the wheel stand (no locomotion); A/D is consumed
+    /// by the driver as the steering signal, not as movement. Gravity off so the crew member doesn't
+    /// slide off the deck while pinned.
+    /// </summary>
+    public sealed class SteeringState : PlayerStateBase
+    {
+        public override PlayerState Id => PlayerState.Steering;
+        // Both hands on the wheel — nothing layers on top.
+
+        public override void Enter(StateContext ctx) => ctx.Body.useGravity = false;
+
+        public override void FixedTick(StateContext ctx)
+        {
+            // The body is pinned to the helm by NetworkPlayer (kinematic ride-along with the moving
+            // ship), so there's no locomotion to drive here — just report zero planar speed.
+            ctx.PlanarSpeed = 0f;
+        }
+
+        public override void Exit(StateContext ctx) => ctx.Body.useGravity = true;
+
+        public override void Render(StateContext ctx) { }
     }
 
     /// <summary>Shared movement helpers so states don't duplicate math.</summary>

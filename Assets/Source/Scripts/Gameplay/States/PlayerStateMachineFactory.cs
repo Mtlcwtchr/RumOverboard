@@ -21,15 +21,20 @@ namespace RumOverboard.Gameplay.States
                 .AddState(new InAirState())
                 .AddState(new ClimbingState())
                 .AddState(new SwimmingState())
+                .AddState(new SteeringState())
                 .AddState(drink);
 
             // --- Locomotion (mutual exclusion handled by compatibility on activate) ---
-            // Guards keep ground/air probes from stealing control while climbing.
+            // Guards keep ground/air probes from stealing control while climbing or at the helm.
             machine
                 .AddActivate(PlayerState.Grounded,
-                    c => c.IsGrounded && !c.InWater && !c.Machine.IsActive(PlayerState.Climbing))
+                    c => c.IsGrounded && !c.InWater
+                         && !c.Machine.IsActive(PlayerState.Climbing)
+                         && !c.Machine.IsActive(PlayerState.Steering))
                 .AddActivate(PlayerState.InAir,
-                    c => (!c.IsGrounded || c.JumpPressed) && !c.InWater && !c.Machine.IsActive(PlayerState.Climbing))
+                    c => (!c.IsGrounded || c.JumpPressed) && !c.InWater
+                         && !c.Machine.IsActive(PlayerState.Climbing)
+                         && !c.Machine.IsActive(PlayerState.Steering))
                 .AddActivate(PlayerState.Swimming,
                     c => c.InWater)
                 .AddActivate(PlayerState.Climbing,
@@ -37,10 +42,22 @@ namespace RumOverboard.Gameplay.States
                 .AddDeactivate(PlayerState.Climbing,
                     c => c.Machine.IsActive(PlayerState.Climbing) && (!c.ClimbPressed || !c.NearClimb));
 
+            // --- Helm (toggle): Interact near the wheel to take/leave it ---
+            machine
+                .AddActivate(PlayerState.Steering,
+                    c => c.InteractPressed && c.NearHelm
+                         && !c.Machine.IsActive(PlayerState.Steering)
+                         && !c.InWater
+                         && !c.Machine.IsActive(PlayerState.Climbing))
+                .AddDeactivate(PlayerState.Steering,
+                    c => c.Machine.IsActive(PlayerState.Steering) && (c.InteractPressed || !c.NearHelm));
+
             // --- Action layer ---
             machine
                 .AddActivate(PlayerState.DrinkingRum,
                     c => c.InteractPressed
+                         && !c.NearHelm
+                         && !c.Machine.IsActive(PlayerState.Steering)
                          && !c.Machine.IsActive(PlayerState.Swimming)
                          && !c.Machine.IsActive(PlayerState.DrinkingRum))
                 .AddDeactivate(PlayerState.DrinkingRum,

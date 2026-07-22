@@ -22,6 +22,7 @@ namespace RumOverboard.StateMachine
         InAir = 1u << 1,
         Climbing = 1u << 2,
         Swimming = 1u << 3,
+        Steering = 1u << 4, // standing at the helm; body locked, A/D turns the wheel
 
         // Action group — layered on top of locomotion.
         DrinkingRum = 1u << 8,
@@ -46,6 +47,17 @@ namespace RumOverboard.StateMachine
         public bool IsGrounded;
         public bool NearClimb;
         public bool InWater;
+        public bool NearHelm;
+
+        // Velocity of whatever we're standing on (the ship deck), at the feet — includes the ship's
+        // linear + rotational motion. Zero on static ground. Locomotion rides this so the crew moves
+        // with the ship instead of sliding off.
+        public Vector3 GroundVelocity;
+
+        // Helm anchor (world) the crew member locks to while Steering — filled by the driver.
+        public bool HasSteerAnchor;
+        public Vector3 SteerAnchorPosition;
+        public float SteerAnchorYaw;
 
         // Nearest climbable, resolved by the driver (primitives only, so this layer
         // never references the Gameplay assembly).

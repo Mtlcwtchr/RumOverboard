@@ -39,7 +39,7 @@ namespace RumOverboard.EditorTools
         [InitializeOnLoadMethod]
         private static void AutoRunOnce()
         {
-            string key = "RumOverboard.ShipNetworkingSetup.Done.v2:" + Application.dataPath;
+            string key = "RumOverboard.ShipNetworkingSetup.Done.v6:" + Application.dataPath;
             if (EditorPrefs.GetBool(key, false))
                 return;
 
@@ -203,6 +203,14 @@ namespace RumOverboard.EditorTools
                     }
                 }
 
+                // 6b) Helm: wheel + rudder steering component on the ship root.
+                if (!root.TryGetComponent(out ShipHelm helm))
+                {
+                    helm = root.AddComponent<ShipHelm>();
+                    changed = true;
+                    log.AppendLine("• added ShipHelm");
+                }
+
                 // 7) Operate on the NetworkShip's own visual subtree, not the standalone stylized prefab.
                 Transform visualRoot = FindVisualShipRoot(root.transform);
                 if (visualRoot != null)
@@ -220,7 +228,23 @@ namespace RumOverboard.EditorTools
                         changed = true;
                         log.AppendLine("• sail anchor points synced from NetworkShip visual");
                     }
+
+                    if (WireHelm(helm, root.transform, visualRoot, log))
+                        changed = true;
                 }
+
+                // Collision authoring safety: the ship is a DYNAMIC rigidbody, so all its walkable
+                // geometry must be solid PRIMITIVE colliders (box) — walkable decks + stairs solid so
+                // the crew can't fall through and can climb to the helm, while interact/climb/zone
+                // markers stay triggers so they don't block or break detection.
+                if (EnsureWalkableAndZoneColliders(root.transform, log))
+                    changed = true;
+
+                // The visual model's deck/hull/stairs use non-convex MeshColliders, which PhysX
+                // rejects on the DYNAMIC ship rigidbody (crew falls through). Bake them CONVEX here
+                // (cooked at import — no runtime mesh-readability needed), disable decorative meshes.
+                if (EnsureHullMeshCollidersConvex(root.transform, log))
+                    changed = true;
                 else
                 {
                     log.AppendLine("• VisualShip child not found on NetworkShip (skipped sail/collider sync)");
@@ -242,6 +266,197 @@ namespace RumOverboard.EditorTools
             summary = changed
                 ? $"Ship networking set up on '{ShipPrefabPath}':\n{log}\nPrefab re-baked and table rebuilt."
                 : $"Ship networking already correct on '{ShipPrefabPath}' — no changes. Table rebuilt.";
+            return true;
+        }
+
+        // Wire the ShipHelm to the wheel mesh / stand / rudder found in the visual subtree, and mark
+        // the wheel's interaction zone as a Helm so players can take it.
+        private static bool WireHelm(ShipHelm helm, Transform shipRoot, Transform visualRoot, System.Text.StringBuilder log)
+        {
+            if (helm == null || visualRoot == null)
+                return false;
+
+            bool changed = false;
+
+            Transform wheel = FindDescendant(visualRoot, n => n == "StylShip_Wheel")
+                              ?? FindDescendant(visualRoot, n => n.Contains("Wheel") && !n.Contains("Stand") && !n.Contains("Zone"));
+            Transform stand = FindDescendant(visualRoot, n => n.Contains("WheelStand"))
+                              ?? FindDescendant(visualRoot, n => n.Contains("Stand"));
+            Transform rudder = FindDescendant(visualRoot, n => n.Contains("Rudder"));
+
+            var so = new SerializedObject(helm);
+            if (wheel != null && SetRef(so, "wheelModel", wheel)) { changed = true; log.AppendLine("• ShipHelm.wheelModel wired"); }
+            Transform anchor = stand != null ? stand : wheel;
+            if (anchor != null && SetRef(so, "standAnchor", anchor)) { changed = true; log.AppendLine("• ShipHelm.standAnchor wired"); }
+            if (rudder != null)
+            {
+                var rp = so.FindProperty("rudderLocal");
+                if (rp != null)
+                {
+                    Vector3 local = shipRoot.InverseTransformPoint(rudder.position);
+                    if ((rp.vector3Value - local).sqrMagnitude > 1e-4f)
+                    {
+                        rp.vector3Value = local;
+                        changed = true;
+                        log.AppendLine("• ShipHelm.rudderLocal from rudder mesh");
+                    }
+                }
+            }
+            so.ApplyModifiedPropertiesWithoutUndo();
+
+            // Find an existing wheel zone, else CREATE a Helm trigger at the wheel stand so the crew
+            // can actually take the wheel (without it, Interact near the wheel falls through to
+            // drinking rum → the player just gets drunk/ragdolls instead of steering).
+            Transform zoneT = FindDescendant(visualRoot, n => n.Contains("Wheel_Zone"))
+                              ?? FindDescendant(visualRoot, n => n.Contains("Wheel") && n.Contains("Zone"))
+                              ?? FindDescendant(shipRoot, n => n == "Helm_Zone");
+            if (zoneT == null)
+            {
+                Transform zoneAnchor = stand != null ? stand : wheel;
+                if (zoneAnchor != null)
+                {
+                    var zoneGo = new GameObject("Helm_Zone");
+                    zoneGo.transform.SetParent(shipRoot, true);
+                    zoneGo.transform.SetPositionAndRotation(zoneAnchor.position, zoneAnchor.rotation);
+                    var box = zoneGo.AddComponent<BoxCollider>();
+                    box.isTrigger = true;
+                    box.center = Vector3.zero;
+                    box.size = new Vector3(2.6f, 2.6f, 2.6f); // covers where the helmsman stands
+                    zoneT = zoneGo.transform;
+                    changed = true;
+                    log.AppendLine("• created Helm_Zone trigger at the wheel stand");
+                }
+            }
+
+            if (zoneT != null)
+            {
+                var zone = zoneT.GetComponent<Source.Scripts.Gameplay.ShipInteractionZone>();
+                if (zone == null)
+                    zone = zoneT.gameObject.AddComponent<Source.Scripts.Gameplay.ShipInteractionZone>();
+                if (zone.Zone != Source.Scripts.Gameplay.ShipInteractionZone.ZoneKind.Helm)
+                {
+                    zone.Configure(Source.Scripts.Gameplay.ShipInteractionZone.ZoneKind.Helm, "Take the wheel");
+                    changed = true;
+                    log.AppendLine($"• '{zoneT.name}' set to Helm interaction zone");
+                }
+                if (zoneT.TryGetComponent(out Collider zc))
+                    zc.isTrigger = true;
+            }
+            else
+            {
+                log.AppendLine("• could not create Helm zone — no wheel/stand transform found in the model");
+            }
+
+            return changed;
+        }
+
+        // Names starting Walkable_/Solid_/Blocked_ or ending _Solid are solid collision; names ending
+        // _Zone or containing _Interact/_Climb are gameplay triggers. Force each collider accordingly.
+        private static bool EnsureWalkableAndZoneColliders(Transform root, System.Text.StringBuilder log)
+        {
+            int solidOps = 0;
+            int triggerOps = 0;
+
+            foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
+            {
+                string n = t.name;
+                bool zoneMarker = n.EndsWith("_Zone") || n.Contains("_Interact") || n.Contains("_Climb");
+                bool solid = !zoneMarker &&
+                             (n.StartsWith("Walkable_") || n.StartsWith("Solid_") || n.StartsWith("Blocked_") || n.EndsWith("_Solid"));
+                if (!zoneMarker && !solid)
+                    continue;
+
+                var cols = t.GetComponents<Collider>();
+                for (int i = 0; i < cols.Length; i++)
+                {
+                    Collider c = cols[i];
+                    if (c == null)
+                        continue;
+
+                    if (!c.enabled)
+                    {
+                        c.enabled = true;
+                        if (zoneMarker) triggerOps++; else solidOps++;
+                    }
+
+                    if (zoneMarker && !c.isTrigger)
+                    {
+                        c.isTrigger = true;
+                        triggerOps++;
+                    }
+                    else if (solid && c.isTrigger)
+                    {
+                        c.isTrigger = false;
+                        solidOps++;
+                    }
+                }
+            }
+
+            if (solidOps > 0 || triggerOps > 0)
+            {
+                log.AppendLine($"• collision fixed: {solidOps} solid (walkable/hull/stairs), {triggerOps} triggers (interact/climb/zone)");
+                return true;
+            }
+            return false;
+        }
+
+        // Bakes the ship's mesh colliders for a dynamic rigidbody: walkable/hull/stairs meshes →
+        // convex (valid + solid to stand/climb on); rigging/cloth/masts → collision disabled.
+        private static bool EnsureHullMeshCollidersConvex(Transform root, System.Text.StringBuilder log)
+        {
+            int convexified = 0;
+            int disabled = 0;
+
+            foreach (var mc in root.GetComponentsInChildren<MeshCollider>(true))
+            {
+                if (mc == null)
+                    continue;
+
+                string n = mc.name;
+                bool decorative = n.Contains("Sail") || n.Contains("Wire") || n.Contains("Rope")
+                                  || n.Contains("Flag") || n.Contains("Cloth") || n.Contains("Mast")
+                                  || n.Contains("Rigging");
+
+                if (decorative)
+                {
+                    if (mc.enabled)
+                    {
+                        mc.enabled = false;
+                        disabled++;
+                    }
+                    continue;
+                }
+
+                bool touched = false;
+                if (!mc.convex) { mc.convex = true; touched = true; }
+                if (!mc.enabled) { mc.enabled = true; touched = true; }
+                if (touched)
+                    convexified++;
+            }
+
+            if (convexified > 0 || disabled > 0)
+            {
+                log.AppendLine($"• hull mesh colliders baked: {convexified} → convex (walkable), {disabled} decorative disabled");
+                return true;
+            }
+            return false;
+        }
+
+        private static Transform FindDescendant(Transform root, System.Func<string, bool> match)
+        {
+            var all = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < all.Length; i++)
+                if (match(all[i].name))
+                    return all[i];
+            return null;
+        }
+
+        private static bool SetRef(SerializedObject so, string property, Object value)
+        {
+            var p = so.FindProperty(property);
+            if (p == null || p.objectReferenceValue == value)
+                return false;
+            p.objectReferenceValue = value;
             return true;
         }
 
