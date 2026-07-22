@@ -216,6 +216,74 @@ CapsuleCollider:
   m_Height: 30.333328
   m_Direction: 1
   m_Center: {x: 0, y: -0.0000009536743, z: 0}
+--- !u!1 &6416968821551975648
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 339605072697381662}
+  - component: {fileID: 2201413550869973256}
+  - component: {fileID: 5726350550789008174}
+  m_Layer: 0
+  m_Name: Helm_Zone
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &339605072697381662
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6416968821551975648}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.000000021855694, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 1.0335662, y: 2.0814154, z: -7.3326097}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5871707528431180879}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &2201413550869973256
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6416968821551975648}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 1
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 2.6, y: 2.6, z: 2.6}
+  m_Center: {x: 0, y: 0, z: 0}
+--- !u!114 &5726350550789008174
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6416968821551975648}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbee4ce2a353e468cafa04223d1dc94a, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::Source.Scripts.Gameplay.ShipInteractionZone
+  zone: 1
+  prompt: Take the wheel
 --- !u!1 &6527942958772517533
 GameObject:
   m_ObjectHideFlags: 0
@@ -308,6 +376,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 7396088349003392190}
+  - {fileID: 339605072697381662}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!54 &5968957751921457046
@@ -500,21 +569,21 @@ MonoBehaviour:
   windSystem: {fileID: 0}
   masts:
   - name: StylShip_MastFront
-    baseLocal: {x: 1.0377563, y: -8.268826, z: 14.2446575}
-    topLocal: {x: 1.0377563, y: 20.128002, z: 14.2446575}
-    radius: 0.14401788
+    baseLocal: {x: 1.0377563, y: -8.268833, z: 14.2446575}
+    topLocal: {x: 1.0377563, y: 20.128109, z: 14.2446575}
+    radius: 0.14404319
     yieldStrength: 40000000
     elasticModulus: 1.2e+10
   - name: StylShip_MastMid
-    baseLocal: {x: 1.0335662, y: -8.299284, z: 3.8659227}
-    topLocal: {x: 1.0335662, y: 28.092627, z: 3.8659227}
-    radius: 0.14402299
+    baseLocal: {x: 1.0335662, y: -8.299271, z: 3.8659227}
+    topLocal: {x: 1.0335662, y: 28.092785, z: 3.8659227}
+    radius: 0.14405559
     yieldStrength: 40000000
     elasticModulus: 1.2e+10
   - name: StylShip_MastBack
-    baseLocal: {x: 1.0740982, y: -8.257927, z: -14.954211}
-    topLocal: {x: 1.0740982, y: 22.075483, z: -14.954211}
-    radius: 0.14401911
+    baseLocal: {x: 1.0740982, y: -8.257925, z: -14.954211}
+    topLocal: {x: 1.0740982, y: 22.075605, z: -14.954211}
+    radius: 0.14404617
     yieldStrength: 40000000
     elasticModulus: 1.2e+10
   syncRigFromVisualSails: 0
@@ -550,7 +619,7 @@ MonoBehaviour:
     pinBoundaryToRig: 1
     triangularHint: 0
     mastIndex: 0
-    mastAttachHeight: 0.54706585
+    mastAttachHeight: 0.5470639
     ropeAttachmentPoints: 10
     topLeftLocal: {x: -4.344578, y: 11.379578, z: 14.602772}
     topRightLocal: {x: 6.420093, y: 11.379578, z: 14.602773}
@@ -581,7 +650,7 @@ MonoBehaviour:
     pinBoundaryToRig: 1
     triangularHint: 0
     mastIndex: 1
-    mastAttachHeight: 0.4680322
+    mastAttachHeight: 0.4680299
     ropeAttachmentPoints: 10
     topLeftLocal: {x: -5.6154795, y: 13.8531685, z: 4.2575636}
     topRightLocal: {x: 7.7030325, y: 13.8531685, z: 4.257564}
@@ -612,7 +681,7 @@ MonoBehaviour:
     pinBoundaryToRig: 1
     triangularHint: 0
     mastIndex: 1
-    mastAttachHeight: 0.8161329
+    mastAttachHeight: 0.8161292
     ropeAttachmentPoints: 10
     topLeftLocal: {x: -1.9622426, y: 23.933386, z: 4.115701}
     topRightLocal: {x: 4.0377574, y: 23.933386, z: 4.115701}
@@ -643,7 +712,7 @@ MonoBehaviour:
     pinBoundaryToRig: 1
     triangularHint: 1
     mastIndex: 2
-    mastAttachHeight: 0.6183233
+    mastAttachHeight: 0.6183208
     ropeAttachmentPoints: 10
     topLeftLocal: {x: 1.7378912, y: 14.721191, z: -18.890574}
     topRightLocal: {x: 1.7378912, y: 14.721191, z: -17.951998}
@@ -1056,7 +1125,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7715931801472133004, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_IsTrigger
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7715931801472133004, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_ProvidesContacts
