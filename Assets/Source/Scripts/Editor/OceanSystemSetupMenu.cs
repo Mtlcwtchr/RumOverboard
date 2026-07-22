@@ -86,6 +86,10 @@ namespace Source.Scripts.Editor
             if (depthProvider == null)
                 depthProvider = oceanRoot.AddComponent<OceanDepthProvider>();
 
+            var windSystem = oceanRoot.GetComponent<OceanWindSystem>();
+            if (windSystem == null)
+                windSystem = oceanRoot.AddComponent<OceanWindSystem>();
+
             var surface = oceanRoot.GetComponent<OceanSurfaceRenderer>();
             if (surface == null)
                 surface = oceanRoot.AddComponent<OceanSurfaceRenderer>();
@@ -102,6 +106,7 @@ namespace Source.Scripts.Editor
                 var so = new SerializedObject(waveField);
                 so.FindProperty("config").objectReferenceValue = config;
                 so.FindProperty("currentSystem").objectReferenceValue = currentSystem;
+                so.FindProperty("windSystem").objectReferenceValue = windSystem;
                 so.FindProperty("depthProvider").objectReferenceValue = depthProvider;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
@@ -168,9 +173,10 @@ namespace Source.Scripts.Editor
             if (rb == null)
                 rb = selected.AddComponent<Rigidbody>();
 
-            rb.mass = Mathf.Max(rb.mass, 1800f);
-            rb.linearDamping = 0.02f;
-            rb.angularDamping = 0.25f;
+            rb.mass = Mathf.Max(rb.mass, 12000f); // auto-buoyancy scales float force to this mass
+            rb.linearDamping = 0.05f;
+            rb.angularDamping = 0.35f;
+            rb.centerOfMass = new Vector3(0f, -0.8f, 0f);
             rb.interpolation = RigidbodyInterpolation.Interpolate;
 
             var buoyancy = selected.GetComponent<ShipBuoyancyController>();
@@ -184,6 +190,9 @@ namespace Source.Scripts.Editor
             var fx = selected.GetComponent<ShipWaterFxController>();
             if (fx == null)
                 fx = selected.AddComponent<ShipWaterFxController>();
+
+            if (selected.GetComponent<ShipWakeFoam>() == null)
+                selected.AddComponent<ShipWakeFoam>();
 
             WireShipScriptReferences(selected, buoyancy, motion, fx, rb);
 
@@ -242,18 +251,25 @@ namespace Source.Scripts.Editor
             var profile = GetOrCreateProfile(fileName);
             profile.globalCurrentDirection = new Vector2(1f, 0.1f);
             profile.globalCurrentSpeed = 0.15f;
-            profile.directionJitterDegrees = 1f;
-            profile.foamIntensity = 0.15f;
-            profile.crestFoamThreshold = 0.78f;
+            profile.directionJitterDegrees = 1.5f;
+            profile.foamIntensity = 0.16f;
+            profile.crestFoamThreshold = 0.76f;
             profile.buoyancyMultiplier = 0.9f;
             profile.dragMultiplier = 0.85f;
-            profile.waveImpactMultiplier = 0.75f;
+            profile.waveImpactMultiplier = 0.8f;
             profile.splashFrequencyScale = 0.5f;
+            profile.choppiness = 1f;
+            profile.swellDirectionDegrees = 205f;
+            profile.swellAmplitude = 0.4f;
+            profile.swellWavelength = 58f;
+            profile.swellSpeed = 5.2f;
+            profile.swellSteepness = 0.4f;
             profile.waves = new[]
             {
-                Wave(new Vector2(1f, 0f), 0.35f, 26f, 2.5f, 1f, 0.35f, 0f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(0.3f, 1f), 0.18f, 15f, 2.0f, 1f, 0.25f, 1.8f, 1f, 1f, OceanWaveBand.Medium),
-                Wave(new Vector2(1f, 0.6f), 0.06f, 6f, 1.6f, 1f, 0.2f, 0.3f, 0f, 1f, OceanWaveBand.Ripple),
+                Wave(new Vector2(1f, 0.05f), 0.55f, 28f, 2.6f, 1f, 0.42f, 0f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(0.35f, 1f), 0.28f, 16f, 2.1f, 1f, 0.32f, 1.8f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(-0.5f, 0.9f), 0.15f, 9.5f, 1.9f, 1f, 0.28f, 3.4f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(1f, 0.6f), 0.07f, 6f, 1.6f, 1f, 0.22f, 0.3f, 0f, 1f, OceanWaveBand.Ripple),
             };
             EditorUtility.SetDirty(profile);
             return profile;
@@ -264,20 +280,27 @@ namespace Source.Scripts.Editor
             var profile = GetOrCreateProfile(fileName);
             profile.globalCurrentDirection = new Vector2(1f, 0.35f);
             profile.globalCurrentSpeed = 0.35f;
-            profile.directionJitterDegrees = 4f;
-            profile.foamIntensity = 0.4f;
-            profile.crestFoamThreshold = 0.66f;
+            profile.directionJitterDegrees = 5f;
+            profile.foamIntensity = 0.44f;
+            profile.crestFoamThreshold = 0.62f;
             profile.buoyancyMultiplier = 1f;
             profile.dragMultiplier = 1f;
-            profile.waveImpactMultiplier = 1f;
-            profile.splashFrequencyScale = 1f;
+            profile.waveImpactMultiplier = 1.15f;
+            profile.splashFrequencyScale = 1.1f;
+            profile.choppiness = 1.1f;
+            profile.swellDirectionDegrees = 25f;
+            profile.swellAmplitude = 1.1f;
+            profile.swellWavelength = 66f;
+            profile.swellSpeed = 6.8f;
+            profile.swellSteepness = 0.5f;
             profile.waves = new[]
             {
-                Wave(new Vector2(1f, 0.1f), 0.75f, 34f, 3.5f, 1f, 0.48f, 0f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(0.3f, 1f), 0.5f, 22f, 3.0f, 1f, 0.36f, 1.1f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(1f, 0.55f), 0.24f, 11f, 2.3f, 1f, 0.3f, 0.2f, 1f, 1f, OceanWaveBand.Medium),
-                Wave(new Vector2(-0.6f, 1f), 0.14f, 7.5f, 2.6f, 1f, 0.26f, 2.2f, 1f, 1f, OceanWaveBand.Medium),
-                Wave(new Vector2(0.8f, 0.4f), 0.08f, 5.5f, 1.9f, 1f, 0.2f, 0.8f, 0f, 1f, OceanWaveBand.Ripple),
+                Wave(new Vector2(1f, 0.12f), 1.2f, 36f, 3.8f, 1f, 0.54f, 0f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(0.3f, 1f), 0.8f, 24f, 3.2f, 1f, 0.44f, 1.1f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(1f, 0.55f), 0.4f, 13f, 2.6f, 1f, 0.38f, 0.2f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(-0.6f, 1f), 0.24f, 8.5f, 2.8f, 1f, 0.34f, 2.2f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(-1f, 0.25f), 0.16f, 6.2f, 2.3f, 1f, 0.3f, 3.7f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(0.8f, 0.4f), 0.09f, 4.5f, 1.9f, 1f, 0.24f, 0.8f, 0f, 1f, OceanWaveBand.Ripple),
             };
             EditorUtility.SetDirty(profile);
             return profile;
@@ -289,20 +312,27 @@ namespace Source.Scripts.Editor
             profile.globalCurrentDirection = new Vector2(0.7f, 0.7f);
             profile.globalCurrentSpeed = 0.7f;
             profile.directionJitterDegrees = 10f;
-            profile.foamIntensity = 0.85f;
-            profile.crestFoamThreshold = 0.52f;
+            profile.foamIntensity = 0.9f;
+            profile.crestFoamThreshold = 0.48f;
             profile.buoyancyMultiplier = 1.35f;
             profile.dragMultiplier = 1.45f;
-            profile.waveImpactMultiplier = 1.55f;
-            profile.splashFrequencyScale = 1.75f;
+            profile.waveImpactMultiplier = 1.7f;
+            profile.splashFrequencyScale = 1.85f;
+            profile.choppiness = 1.15f;
+            profile.swellDirectionDegrees = 12f;
+            profile.swellAmplitude = 2.6f;
+            profile.swellWavelength = 92f;
+            profile.swellSpeed = 8.4f;
+            profile.swellSteepness = 0.56f;
             profile.waves = new[]
             {
-                Wave(new Vector2(1f, 0.3f), 1.35f, 44f, 5.2f, 1f, 0.62f, 0f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(-0.4f, 1f), 0.95f, 28f, 4.5f, 1f, 0.5f, 0.8f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(0.2f, 1f), 0.68f, 20f, 4.0f, 1f, 0.43f, 1.9f, 1f, 1f, OceanWaveBand.Large),
-                Wave(new Vector2(1f, 0.5f), 0.38f, 11f, 3.2f, 1f, 0.36f, 2.5f, 1f, 1f, OceanWaveBand.Medium),
-                Wave(new Vector2(-1f, 0.1f), 0.32f, 8.5f, 3.4f, 1f, 0.33f, 3.1f, 1f, 1f, OceanWaveBand.Medium),
-                Wave(new Vector2(0.8f, -0.2f), 0.12f, 5f, 2.5f, 1f, 0.24f, 1.2f, 0f, 1f, OceanWaveBand.Ripple),
+                Wave(new Vector2(1f, 0.3f), 2.2f, 48f, 5.6f, 1f, 0.62f, 0f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(-0.4f, 1f), 1.5f, 30f, 4.8f, 1f, 0.54f, 0.8f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(0.2f, 1f), 1.1f, 22f, 4.2f, 1f, 0.46f, 1.9f, 1f, 1f, OceanWaveBand.Large),
+                Wave(new Vector2(1f, 0.5f), 0.6f, 12f, 3.4f, 1f, 0.4f, 2.5f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(-1f, 0.1f), 0.5f, 9f, 3.5f, 1f, 0.36f, 3.1f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(-0.3f, -1f), 0.33f, 6.5f, 3.0f, 1f, 0.32f, 4.4f, 1f, 1f, OceanWaveBand.Medium),
+                Wave(new Vector2(0.8f, -0.2f), 0.16f, 4.8f, 2.6f, 1f, 0.26f, 1.2f, 0f, 1f, OceanWaveBand.Ripple),
             };
             EditorUtility.SetDirty(profile);
             return profile;
@@ -414,6 +444,16 @@ namespace Source.Scripts.Editor
                 SetIfExists(material, "_SpecularPower", 48f);
                 SetIfExists(material, "_RippleScale", 1.2f);
                 SetIfExists(material, "_RippleSpeed", 0.65f);
+                SetIfExists(material, "_Roughness", 0.12f);
+                SetIfExists(material, "_ReflectionStrength", 0.4f);
+                SetIfExists(material, "_SubsurfaceColor", new Color(0.16f, 0.66f, 0.58f, 1f));
+                SetIfExists(material, "_SubsurfaceStrength", 0.85f);
+                SetIfExists(material, "_DetailNormalScale", 0.6f);
+                SetIfExists(material, "_DetailTiling", 0.15f);
+                SetIfExists(material, "_DetailScroll", 0.04f);
+                SetIfExists(material, "_RefractionStrength", 0.025f);
+                SetIfExists(material, "_DetailFadeStart", 110f);
+                SetIfExists(material, "_DetailFadeEnd", 230f);
             }
             else
             {

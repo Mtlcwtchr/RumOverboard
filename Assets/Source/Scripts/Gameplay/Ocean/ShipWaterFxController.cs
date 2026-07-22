@@ -15,6 +15,7 @@ namespace RumOverboard.Gameplay.Ocean
 
         private readonly Queue<ParticleSystem> _pool = new Queue<ParticleSystem>(16);
         private float _nextEmitTime;
+        private ParticleSystem _procedural; // asset-free splash used when no splashPrefab is assigned
 
         public void ConfigureReferences(ShipBuoyancyController buoyancyController, ParticleSystem splashTemplate)
         {
@@ -28,7 +29,11 @@ namespace RumOverboard.Gameplay.Ocean
             if (buoyancy == null)
                 buoyancy = GetComponentInParent<ShipBuoyancyController>();
 
-            BuildPool();
+            if (splashPrefab != null)
+                BuildPool();
+            else
+                _procedural = FoamParticleFactory.CreateFoamSystem(transform, "ImpactSplashFoam",
+                    new Color(0.96f, 0.98f, 1f, 0.95f), 0.9f, 1.1f);
         }
 
         private void OnEnable()
@@ -67,6 +72,12 @@ namespace RumOverboard.Gameplay.Ocean
 
             _nextEmitTime = Time.time + minInterval;
 
+            if (splashPrefab == null)
+            {
+                EmitProcedural(ev);
+                return;
+            }
+
             var ps = Acquire();
             if (ps == null)
                 return;
@@ -81,6 +92,25 @@ namespace RumOverboard.Gameplay.Ocean
             ps.Play(true);
 
             StartCoroutine(ReturnAfter(ps, main.duration + main.startLifetime.constantMax + 0.05f));
+        }
+
+        // Asset-free splash burst: throw foam dots up along the wave normal, scaled by impact.
+        private void EmitProcedural(ShipWaterContactEvent ev)
+        {
+            if (_procedural == null)
+                return;
+
+            int count = Mathf.Clamp(Mathf.RoundToInt(ev.impactStrength * 1.5f), 4, 40);
+            float burst = Mathf.Lerp(1.5f, 5f, Mathf.Clamp01(ev.impactStrength / 12f));
+            Vector3 up = ev.surfaceNormal.sqrMagnitude > 0.001f ? ev.surfaceNormal.normalized : Vector3.up;
+
+            var emit = new ParticleSystem.EmitParams { applyShapeToPosition = false };
+            for (int i = 0; i < count; i++)
+            {
+                emit.position = ev.worldPoint + Random.insideUnitSphere * 0.3f;
+                emit.velocity = up * burst + Random.insideUnitSphere * (burst * 0.4f);
+                _procedural.Emit(emit, 1);
+            }
         }
 
         private System.Collections.IEnumerator ReturnAfter(ParticleSystem ps, float delay)

@@ -152,6 +152,84 @@ Project Settings ▸ Tags and Layers — добавь:
 
 ---
 
+## 6. Рефактор нетворкинга: host migration, lag compensation, гибридный корабль
+
+Модель осталась **host-authoritative** (хост = сервер). Ниже — что уже сделано в коде/конфиге и
+что осталось сделать руками в редакторе (Fusion требует запекания `NetworkObject`).
+
+### 6.1 Гибридный `NetworkShip` (транспорт → `NetworkRigidbody3D`)
+
+Раньше `NetworkShip` **сам** гнал по сети позицию/поворот/скорости корабля (`ShipNetState`) и
+двигал прокси в `Render()`. Это дублировало то, что делает аддон Physics, и **конфликтовало** с ним
+(аддон сам держит прокси kinematic и интерполирует их в своём `Render()`).
+
+Теперь `NetworkShip` реплицирует только производные значения, которые прокси не могут вычислить из
+трансформа: `LastImpactStrength` (событие удара волны) и `OceanTime` (часы океана). Всё геометрическое
+(pos/rot/velocity/kinematic/constraints) отдано `NetworkRigidbody3D`.
+
+**Сделать в редакторе (обязательно, иначе корабль не будет реплицироваться — `NetworkShip` кинет
+`LogError` в `Spawned`):**
+1. Открыть префаб `Assets/Source/Prefabs/NetworkShip.prefab`.
+2. Добавить на корень компонент **`NetworkRigidbody3D`** (Fusion Physics addon). `NetworkTransform`
+   на корабле НЕ нужен (и не должен стоять одновременно).
+3. Убедиться, что на корне есть `Rigidbody` (не kinematic на исходнике — режимом рулит аддон).
+4. **Tools ▸ Fusion ▸ Rebuild Object Table**.
+
+> Roll/pitch больше не в сети — `ShipDeckMotionProvider` берёт их из локального `ShipBuoyancyController`,
+> который читает синхронизированный трансформ, поэтому на прокси они корректны и так.
+
+⚠️ **Тайминг физики буйанси (на заметку, не блокер):** `ShipBuoyancyController` прикладывает силы в
+Unity-`FixedUpdate`, а с аддоном Physics авторитетная симуляция шагается Fusion'ом (`Physics.Simulate`
+внутри тика). Для 100% детерминизма форс-логику стоит перенести в `FixedUpdateNetwork` авторитета
+(вызывать из `NetworkShip`), но это отдельная задача — текущий вариант работает, пока Unity fixed-rate
+совпадает с тик-рейтом.
+
+### 6.2 Дедуп часов океана
+
+`NetworkOceanState` дублировал `OceanTime`/`ApplyTimeCorrection` с `NetworkShip` (и в сцене сейчас не
+используется). Теперь он **уступает** кораблю: если в сцене есть `NetworkShip`, `NetworkOceanState`
+перестаёт писать/корректировать `OceanTime` (иначе две системы дёргали бы коррекцию времени
+одновременно). Seed/sea-state он реплицирует всегда. Для сцен без корабля он остаётся авторитетом часов.
+
+### 6.3 Lag compensation
+
+Включено в `NetworkProjectConfig.fusion` (`LagCompensation.Enabled = true`, буфер 200 мс).
+
+**Сделать в редакторе (нужно для попаданий по игрокам — волны/летучая рыба/падающая мачта):**
+1. На префабе `NetworkPlayer.prefab` добавить **`HitboxRoot`** на корень.
+2. Добавить один-несколько **`Hitbox`** (капсула на тело; можно на кости) со ссылкой на этот `Root`.
+3. **Rebuild Object Table**.
+
+**Использование из кода (когда появятся хазарды):** на авторитете в `FixedUpdateNetwork`:
+```csharp
+if (Runner.LagCompensation.Raycast(origin, dir, length, Object.InputAuthority,
+        out LagCompensatedHit hit, layerMask, HitOptions.IncludePhysX))
+{
+    if (hit.Hitbox != null && hit.Hitbox.Root.GetComponent<NetworkPlayer>() is { } p)
+        p.Knockout();
+}
+```
+> Сейчас потребителей рейкастов нет (`Knockout()` никто не вызывает), так что lag comp — это
+> инфраструктура на будущее: конфиг включён, но без хитбоксов и хазард-кода эффекта ещё нет.
+
+### 6.4 Host migration
+
+Включено (`HostMigration.EnableAutoUpdate = true`). `ConnectionManager.OnHostMigration` теперь:
+гасит мёртвый раннер (`Shutdown(destroyGameObject:false)` — раннер живёт на GameObject менеджера),
+поднимает новый раннер с `HostMigrationToken` + `HostMigrationResume`, и на новом хосте пересоздаёт
+каждый объект из снапшота через `Spawn(..., onBeforeSpawned: o => o.CopyStateFrom(resumeObject))`,
+восстанавливая карты `_players`/`_ship`. `OnShutdown` не трогает состояние при причине `HostMigration`.
+
+**Тест:** Multiplayer Play Mode на 3 пира → убить пир-хост → у выжившего должен подняться новый раннер
+(лог `Host migration complete`), корабль и игроки — на месте с их состоянием.
+
+⚠️ **Требует прогонки в MPPM** — точная семантика мульти-пирного resume в Fusion 2 проверяется только
+в рантайме; я следовал каноничному паттерну Photon, но это единственный кусок, который стоит
+протестировать первым. Мелочь: после миграции на GameObject менеджера остаются инертные компоненты
+старого раннера (новый — на отдельном GO); безвредно, но можно почистить.
+
+---
+
 ## Troubleshooting
 
 - **`InvalidOperationException: You are trying to read Input using the UnityEngine.Input class`**
@@ -178,4 +256,6 @@ Project Settings ▸ Tags and Layers — добавь:
 - Триггер падения за борт → авто-`IsRagdoll` + механика спасения.
 - Накопление опьянения от рома (`NetworkPlayer.Drunkenness`) + визуал.
 - Реактивный UI на R3 (MVVM): здоровье экипажа, ветер, роли.
-- Судно: сетевой корпус (`NetworkTransform`/`NetworkRigidbody3D`), парус/руль/вёсла как сетевые интеракции.
+- Судно: сетевой корпус — сделано (гибрид `NetworkRigidbody3D`, см. §6.1). Осталось: парус/руль/вёсла
+  как сетевые интеракции; при желании — перенос сил буйанси в `FixedUpdateNetwork` (см. §6.1).
+- Хазарды с попаданиями по игрокам через lag-compensated рейкасты (§6.3): волна, летучая рыба, мачта.

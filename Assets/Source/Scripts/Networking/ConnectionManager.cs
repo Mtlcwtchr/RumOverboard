@@ -70,6 +70,7 @@ namespace RumOverboard.Networking
         private readonly InputReader _input = new();
         private int _spawnCounter;
         private bool _attached; // true when we borrowed a runner we didn't create
+        private bool _migrating; // true while a host-migration resume is in flight
 
         private NetworkObject _ship;
         private bool _shipSpawnPending;
@@ -196,13 +197,7 @@ namespace RumOverboard.Networking
 
             var sceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>();
 
-            // Sync the scene that's already open (single-scene bootstrap). NetworkSceneInfo
-            // is what StartGameArgs.Scene expects; the default scene manager reconciles a
-            // scene that's already loaded, so Multiplayer Play Mode won't double-load it.
-            var sceneInfo = new NetworkSceneInfo();
-            SceneRef sceneRef = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex);
-            if (sceneRef.IsValid)
-                sceneInfo.AddSceneRef(sceneRef, LoadSceneMode.Additive);
+            NetworkSceneInfo sceneInfo = BuildCurrentSceneInfo();
 
             var args = new StartGameArgs
             {
@@ -227,6 +222,21 @@ namespace RumOverboard.Networking
 
             EnsureShipSpawned();
             return true;
+        }
+
+        /// <summary>
+        /// Sync the scene that's already open (single-scene bootstrap). NetworkSceneInfo is
+        /// what StartGameArgs.Scene expects; the default scene manager reconciles a scene that's
+        /// already loaded, so Multiplayer Play Mode won't double-load it. Reused by the normal
+        /// start and the host-migration resume.
+        /// </summary>
+        private static NetworkSceneInfo BuildCurrentSceneInfo()
+        {
+            var sceneInfo = new NetworkSceneInfo();
+            SceneRef sceneRef = SceneRef.FromIndex(SceneManager.GetActiveScene().buildIndex);
+            if (sceneRef.IsValid)
+                sceneInfo.AddSceneRef(sceneRef, LoadSceneMode.Additive);
+            return sceneInfo;
         }
 
         /// <summary>
@@ -465,6 +475,112 @@ namespace RumOverboard.Networking
             _disabledPlaceholderWasActive = false;
         }
 
+        // ---- Host migration ------------------------------------------------------
+        /// <summary>
+        /// The host disappeared. Fusion elected a new host and handed every surviving peer a
+        /// snapshot token. We tear down the dead runner and start a fresh one that RESUMES the
+        /// session from the token: the peer that becomes the new host re-creates each migrated
+        /// object with its prior networked state (<see cref="HostMigrationResume"/>); clients
+        /// reconnect and get them replicated as usual. Needs HostMigration.EnableAutoUpdate =
+        /// true in NetworkProjectConfig (already set). Host/Server topology only — Shared mode
+        /// migrates automatically and never raises this callback.
+        /// </summary>
+        public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken)
+        {
+            Debug.Log($"[ConnectionManager] Host migration started (resume mode {hostMigrationToken.GameMode}).");
+            MigrateHost(runner, hostMigrationToken).Forget();
+        }
+
+        private async UniTaskVoid MigrateHost(NetworkRunner oldRunner, HostMigrationToken token)
+        {
+            _migrating = true;
+            try
+            {
+                // Shut the dead session down but KEEP our GameObject: in the standalone path the
+                // old runner lives on it, and Shutdown destroys the runner's GameObject by
+                // default — which would take this manager (and the migration) down with it.
+                if (oldRunner != null)
+                    await oldRunner.Shutdown(destroyGameObject: false, shutdownReason: ShutdownReason.HostMigration);
+
+                // Bookkeeping is rebuilt from the resume snapshot in HostMigrationResume.
+                _players.Clear();
+                _pendingSpawns.Clear();
+                _ship = null;
+                _shipSpawnPending = false;
+                _spawnCounter = 0;
+
+                // Fresh runner on its own GameObject so we don't stack a second
+                // runner/scene-manager/physics-sim on top of the one we just shut down.
+                var runnerGo = new GameObject("NetworkRunner (Migrated)");
+                var newRunner = runnerGo.AddComponent<NetworkRunner>();
+                newRunner.ProvideInput = true;
+                newRunner.AddCallbacks(this);
+                EnsurePhysicsSimulator(runnerGo);
+
+                var args = new StartGameArgs
+                {
+                    GameMode = token.GameMode,                 // framework resolves new host vs client
+                    HostMigrationToken = token,
+                    HostMigrationResume = HostMigrationResume, // runs on the resuming host
+                    SceneManager = runnerGo.AddComponent<NetworkSceneManagerDefault>(),
+                    Scene = BuildCurrentSceneInfo(),
+                };
+
+                StartGameResult result = await newRunner.StartGame(args);
+                if (!result.Ok)
+                {
+                    Debug.LogError($"[ConnectionManager] Host migration failed to resume: {result.ShutdownReason}");
+                    Destroy(runnerGo);
+                    return;
+                }
+
+                _runner = newRunner;
+                _attached = false; // we own the migrated runner
+                Debug.Log($"[ConnectionManager] Host migration complete. IsServer={_runner.IsServer}, " +
+                          $"LocalPlayer={_runner.LocalPlayer}, Session='{_runner.SessionInfo.Name}'.");
+            }
+            finally
+            {
+                _migrating = false;
+            }
+        }
+
+        /// <summary>
+        /// Runs on the resuming host. Re-creates every migrated NetworkObject with the exact
+        /// networked state it had before the old host died (CopyStateFrom inside onBeforeSpawned)
+        /// and rebuilds our player/ship maps so the normal join/leave paths keep working. On
+        /// non-host peers the resume snapshot is empty, so this no-ops and objects arrive via
+        /// replication.
+        /// </summary>
+        private void HostMigrationResume(NetworkRunner runner)
+        {
+            foreach (NetworkObject resumeObject in runner.GetResumeSnapshotNetworkObjects())
+            {
+                if (resumeObject.TryGetComponent(out NetworkPlayer _))
+                {
+                    PlayerRef input = resumeObject.InputAuthority;
+                    NetworkObject spawned = runner.Spawn(
+                        playerPrefab,
+                        resumeObject.transform.position,
+                        resumeObject.transform.rotation,
+                        input,
+                        (r, o) => o.CopyStateFrom(resumeObject));
+
+                    if (spawned != null && input.IsRealPlayer)
+                        _players[input] = spawned;
+                }
+                else if (resumeObject.TryGetComponent(out NetworkShip _))
+                {
+                    _ship = runner.Spawn(
+                        shipPrefab,
+                        resumeObject.transform.position,
+                        resumeObject.transform.rotation,
+                        null,
+                        (r, o) => o.CopyStateFrom(resumeObject));
+                }
+            }
+        }
+
         // ---- Input ---------------------------------------------------------------
         public void OnInput(NetworkRunner runner, NetworkInput input)
         {
@@ -484,7 +600,7 @@ namespace RumOverboard.Networking
         public void OnUserSimulationMessage(NetworkRunner runner, SimulationMessagePtr message) { }
         public void OnSessionListUpdated(NetworkRunner runner, List<SessionInfo> sessionList) { }
         public void OnCustomAuthenticationResponse(NetworkRunner runner, Dictionary<string, object> data) { }
-        public void OnHostMigration(NetworkRunner runner, HostMigrationToken hostMigrationToken) { }
+        // Host migration is implemented above (see the "Host migration" region).
         public void OnReliableDataReceived(NetworkRunner runner, PlayerRef player, ReliableKey key, ArraySegment<byte> data) { }
         public void OnReliableDataProgress(NetworkRunner runner, PlayerRef player, ReliableKey key, float progress) { }
         public void OnObjectExitAOI(NetworkRunner runner, NetworkObject obj, PlayerRef player) { }
@@ -496,6 +612,14 @@ namespace RumOverboard.Networking
         public void OnSceneLoadStart(NetworkRunner runner) { }
         public void OnShutdown(NetworkRunner runner, ShutdownReason shutdownReason)
         {
+            // During host migration the old runner shuts down by design — MigrateHost owns the
+            // teardown and rebuild, so don't wipe state or null the runner out from under it.
+            if (_migrating || shutdownReason == ShutdownReason.HostMigration)
+            {
+                Debug.Log("[ConnectionManager] Runner shut down for host migration; resume in progress.");
+                return;
+            }
+
             Debug.Log($"[ConnectionManager] Shutdown: {shutdownReason}");
             _players.Clear();
             _pendingSpawns.Clear();

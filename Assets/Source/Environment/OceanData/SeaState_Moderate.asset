@@ -13,63 +13,79 @@ MonoBehaviour:
   m_Name: SeaState_Moderate
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanSeaStateProfile
   waves:
-  - direction: {x: 1, y: 0.1}
-    amplitude: 0.75
-    wavelength: 34
-    speed: 3.5
+  - direction: {x: 1, y: 0.12}
+    amplitude: 1.2
+    wavelength: 36
+    speed: 3.8
     frequency: 1
-    steepness: 0.48
+    steepness: 0.54
     phase: 0
     physicsWeight: 1
     visualWeight: 1
     band: 0
   - direction: {x: 0.3, y: 1}
-    amplitude: 0.5
-    wavelength: 22
-    speed: 3
+    amplitude: 0.8
+    wavelength: 24
+    speed: 3.2
     frequency: 1
-    steepness: 0.36
+    steepness: 0.44
     phase: 1.1
     physicsWeight: 1
     visualWeight: 1
     band: 0
   - direction: {x: 1, y: 0.55}
-    amplitude: 0.24
-    wavelength: 11
-    speed: 2.3
+    amplitude: 0.4
+    wavelength: 13
+    speed: 2.6
     frequency: 1
-    steepness: 0.3
+    steepness: 0.38
     phase: 0.2
     physicsWeight: 1
     visualWeight: 1
     band: 1
   - direction: {x: -0.6, y: 1}
-    amplitude: 0.14
-    wavelength: 7.5
-    speed: 2.6
+    amplitude: 0.24
+    wavelength: 8.5
+    speed: 2.8
     frequency: 1
-    steepness: 0.26
+    steepness: 0.34
     phase: 2.2
     physicsWeight: 1
     visualWeight: 1
     band: 1
+  - direction: {x: -1, y: 0.25}
+    amplitude: 0.16
+    wavelength: 6.2
+    speed: 2.3
+    frequency: 1
+    steepness: 0.3
+    phase: 3.7
+    physicsWeight: 1
+    visualWeight: 1
+    band: 1
   - direction: {x: 0.8, y: 0.4}
-    amplitude: 0.08
-    wavelength: 5.5
+    amplitude: 0.09
+    wavelength: 4.5
     speed: 1.9
     frequency: 1
-    steepness: 0.2
+    steepness: 0.24
     phase: 0.8
     physicsWeight: 0
     visualWeight: 1
     band: 2
-  directionJitterDegrees: 4
+  choppiness: 1.1
+  swellDirectionDegrees: 25
+  swellAmplitude: 1.1
+  swellWavelength: 66
+  swellSpeed: 6.8
+  swellSteepness: 0.5
+  directionJitterDegrees: 5
   globalCurrentDirection: {x: 1, y: 0.35}
   globalCurrentSpeed: 0.35
-  foamIntensity: 0.4
-  crestFoamThreshold: 0.66
+  foamIntensity: 0.44
+  crestFoamThreshold: 0.62
   shallowColorBoost: 0.5
   buoyancyMultiplier: 1
   dragMultiplier: 1
-  waveImpactMultiplier: 1
-  splashFrequencyScale: 1
+  waveImpactMultiplier: 1.15
+  splashFrequencyScale: 1.1

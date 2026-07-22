@@ -67,6 +67,7 @@ namespace Source.Scripts.Editor
                 visualShip.name = "VisualShip";
                 visualShip.transform.SetParent(wrapperRoot.transform, false);
 
+                SyncVisualElementColliders(visualShip.transform);
                 MakeDecorativePartsPassThrough(visualShip.transform);
                 BuildGameplayVolumes(wrapperRoot.transform, visualShip.transform, climbLayer);
                 EnsureShipPhysicsComponents(wrapperRoot);
@@ -159,7 +160,7 @@ namespace Source.Scripts.Editor
             instance.transform.SetPositionAndRotation(targetPosition, targetRotation);
             instance.transform.localScale = targetScale;
 
-            WireShipRuntimeReferences(instance);
+             WireShipRuntimeReferences(instance);
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene);
@@ -459,12 +460,177 @@ namespace Source.Scripts.Editor
             CreateInteractionBox(interactionRoot, partName + "_Zone", b.center + centerOffset, size, kind, prompt);
         }
 
+        private static void SyncVisualElementColliders(Transform visualShip)
+        {
+            if (visualShip == null)
+                return;
+
+            foreach (Transform t in visualShip.GetComponentsInChildren<Transform>(true))
+            {
+                if (t == null || t == visualShip)
+                    continue;
+
+                bool ropeLike = IsRopeLikePart(t.name);
+                Collider[] existing = t.GetComponents<Collider>();
+
+                if (ropeLike)
+                {
+                    for (int i = 0; i < existing.Length; i++)
+                    {
+                        Collider c = existing[i];
+                        if (c != null)
+                            c.enabled = false;
+                    }
+
+                    continue;
+                }
+
+                for (int i = 0; i < existing.Length; i++)
+                {
+                    Collider c = existing[i];
+                    if (c == null)
+                        continue;
+                    c.isTrigger = false;
+                    c.enabled = true;
+                }
+
+                bool mastLike = IsMastLikePart(t.name);
+                bool sailLike = IsSailLikePart(t.name);
+                if (!mastLike && !sailLike)
+                    continue;
+                if (!TryGetLocalBoundsFromMesh(t, out Bounds localBounds))
+                    continue;
+
+                EnsureInteractiveHelperCollider(t, localBounds, mastLike);
+            }
+        }
+
+        private static void EnsureInteractiveHelperCollider(Transform target, Bounds localBounds, bool mastLike)
+        {
+            string helperName = mastLike ? "Interactive_MastCollider" : "Interactive_SailCollider";
+            Transform helper = target.Find(helperName);
+            if (helper == null)
+            {
+                helper = new GameObject(helperName).transform;
+                helper.SetParent(target, false);
+            }
+
+            Vector3 size = localBounds.size;
+            Vector3 center = localBounds.center;
+            if (mastLike)
+            {
+                if (!helper.TryGetComponent(out CapsuleCollider capsule))
+                {
+                    Collider other = helper.GetComponent<Collider>();
+                    if (other != null)
+                        Object.DestroyImmediate(other);
+                    capsule = helper.gameObject.AddComponent<CapsuleCollider>();
+                }
+
+                capsule.center = new Vector3(0f, center.y, 0f);
+                capsule.direction = 1;
+                capsule.radius = Mathf.Max(0.03f, Mathf.Min(size.x, size.z) * 0.5f);
+                capsule.radius = Mathf.Clamp(capsule.radius, 0.08f, 0.32f);
+                capsule.height = Mathf.Max(size.y, capsule.radius * 2.05f);
+
+                capsule.isTrigger = false;
+                capsule.enabled = true;
+                return;
+            }
+
+            if (!helper.TryGetComponent(out BoxCollider box))
+            {
+                Collider other = helper.GetComponent<Collider>();
+                if (other != null)
+                    Object.DestroyImmediate(other);
+                box = helper.gameObject.AddComponent<BoxCollider>();
+            }
+
+            box.center = center;
+
+            int thinAxis = 2;
+            float minAxis = size.z;
+            if (size.x < minAxis) { minAxis = size.x; thinAxis = 0; }
+            if (size.y < minAxis) { thinAxis = 1; }
+            const float minThickness = 0.05f;
+            if (thinAxis == 0) size.x = Mathf.Max(size.x, minThickness);
+            else if (thinAxis == 1) size.y = Mathf.Max(size.y, minThickness);
+            else size.z = Mathf.Max(size.z, minThickness);
+
+            box.size = new Vector3(
+                Mathf.Max(0.02f, size.x),
+                Mathf.Max(0.02f, size.y),
+                Mathf.Max(0.02f, size.z));
+            box.isTrigger = false;
+            box.enabled = true;
+        }
+
+        private static bool TryGetLocalBoundsFromMesh(Transform target, out Bounds localBounds)
+        {
+            localBounds = default;
+
+            if (target.TryGetComponent(out MeshFilter meshFilter) && meshFilter.sharedMesh != null)
+            {
+                localBounds = meshFilter.sharedMesh.bounds;
+                return true;
+            }
+
+            if (target.TryGetComponent(out SpriteRenderer spriteRenderer))
+            {
+                localBounds = spriteRenderer.localBounds;
+                return true;
+            }
+
+            if (target.TryGetComponent(out Renderer renderer))
+            {
+                Vector3 localCenter = target.InverseTransformPoint(renderer.bounds.center);
+                Vector3 lossy = target.lossyScale;
+                Vector3 localSize = new Vector3(
+                    renderer.bounds.size.x / Mathf.Max(0.001f, Mathf.Abs(lossy.x)),
+                    renderer.bounds.size.y / Mathf.Max(0.001f, Mathf.Abs(lossy.y)),
+                    renderer.bounds.size.z / Mathf.Max(0.001f, Mathf.Abs(lossy.z)));
+                localBounds = new Bounds(localCenter, localSize);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsRopeLikePart(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            return name.StartsWith("StylShip_Wire") ||
+                   name.StartsWith("StylShip_Ropes") ||
+                   name.IndexOf("rope", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("wire", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsMastLikePart(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            return name.IndexOf("mast", System.StringComparison.OrdinalIgnoreCase) >= 0 &&
+                   name.IndexOf("crow", System.StringComparison.OrdinalIgnoreCase) < 0 &&
+                   name.IndexOf("climb", System.StringComparison.OrdinalIgnoreCase) < 0;
+        }
+
+        private static bool IsSailLikePart(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return false;
+
+            return name.IndexOf("sail", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("spanker", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                   name.IndexOf("jib", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static void MakeDecorativePartsPassThrough(Transform visualShip)
         {
             string[] passThroughPrefixes =
             {
-                "StylShip_Sail",
-                "StylShip_Flag",
                 "StylShip_Wire",
                 "StylShip_Ropes",
             };
@@ -864,7 +1030,7 @@ namespace Source.Scripts.Editor
             var buoyancy = shipRoot.GetComponent<ShipBuoyancyController>();
             var deckMotion = shipRoot.GetComponent<ShipDeckMotionProvider>();
             var fx = shipRoot.GetComponent<ShipWaterFxController>();
-            var waveField = Object.FindFirstObjectByType<OceanWaveField>();
+            var waveField = Object.FindAnyObjectByType<OceanWaveField>();
 
             if (rb != null && buoyancy != null)
             {

@@ -89,11 +89,46 @@
 6. Количество и размещение `ShipBuoyancyPoint`
 7. Переходы профилей (`OceanWaveField` + `OceanSeaStateController.transitionSeconds`)
 
-## 6) Следующие итерации
+## 6) Обновление: острые волны, swell, шейдер, дебаг-графика
 
-- URP water shader (crest foam, shoreline foam, depth color, stylized specular)
-- событийная система пены у форштевня/кильватера
-- spline-authoring editor для течений
-- явная сериализация state-профилей для матчевых этапов/чекпоинтов
-- сетевой authoritative `NetworkShip` + интеграция с `ConnectionManager`
+### Симуляция волн
+- `OceanSeaStateProfile`: добавлены `choppiness` (глобальный множитель steepness → острые гребни),
+  и доминирующий **swell** (`swellDirectionDegrees/Amplitude/Wavelength/Speed/Steepness`) — большие
+  направленные валы. Корабль, идущий в swell, принимает высокие волны на нос («бьют спереди»).
+  Свойства-хелперы: `SwellDirection2D`, `HasSwell`, `BuildSwellWave()`, `DominantWaveDirection2D`,
+  `EstimatedWaveHeight()`.
+- `OceanWaveField`: инъекция swell вне band-cap; применение choppiness к steepness; публичные
+  геттеры для HUD/дебага — `DominantWaveDirection`, `EstimatedWaveHeight`, `ActiveProfileName`,
+  `SampleHeight(pos)`. Константа `SwellWaveIndex` (публичная) — общий jitter-индекс swell для CPU и GPU.
+- Профили Calm/Moderate/Storm перетюнены (круче steepness, больше полос/направлений, добавлен swell).
+  Генератор `OceanSystemSetupMenu` синхронизирован — повторная генерация даёт те же значения.
+
+### Синхронизация CPU↔GPU
+- `OceanSurfaceRenderer.BuildShaderWaveBuffers` теперь **запекает** в шейдерные uniform'ы те же
+  CPU-модификаторы, что использует физика/меш: directional jitter (`OceanWaveMath.JitteredDirection`),
+  choppiness, runtime amplitude/speed, и swell-волну. Фрагментные нормали/пена больше не «плывут»
+  относительно поверхности. Не запекается: позиционный depth-damping и переход профилей (тонкий дрейф).
+
+### Шейдер `OceanStylizedURP` (реализм + cozy)
+Добавлено: отражения reflection-probe (кубмапа, fresnel-взвешенно), SSS-просвет гребней по солнцу,
+detail-нормали (2 скролл-слоя, без тангентов), лёгкая рефракция сцены (opaque texture), ambient из SH,
+богаче пена. Cozy deep/shallow-рамп сохранён.
+
+⚠️ **Требования URP-ассета:** включить **Opaque Texture** (для рефракции `SampleSceneColor`) и
+**Depth Texture** (уже используется). По желанию — назначить материалу воды карту в слот
+`_DetailNormal` (по умолчанию `bump`=плоская, шейдер работает и без неё). Reflection Probe в сцене
+улучшит отражения (иначе берётся скайбокс).
+
+### Дебаг-графика (в существующих окнах)
+`OceanDebugGizmos` — миникарта top-down + стрелки направлений (Handles в GUI-пространстве):
+- **Ocean Runtime Window** — миникарта: доминирующая волна, течение, ветер, курс корабля + оценка высоты волны.
+- **Wind Runtime Window** — компас ветра + курс корабля + точка галфвинда (into wind / beam / running).
+- **Sail Runtime Window** — диаграмма тяги: стрелки по парусам, суммарная тяга, ветер, курс.
+
+## 7) Следующие итерации
+
+- Событийная система пены у форштевня/кильватера.
+- Spline-authoring editor для течений.
+- Перенос сил буйанси в `FixedUpdateNetwork` авторитета (детерминизм с Fusion Physics addon).
+- Сериализация state-профилей для матчевых этапов/чекпоинтов.
 

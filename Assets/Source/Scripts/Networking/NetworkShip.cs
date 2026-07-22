@@ -5,45 +5,50 @@ using UnityEngine;
 
 namespace RumOverboard.Networking
 {
-    public struct ShipNetState : INetworkStruct
-    {
-        public Vector3 Position;
-        public Quaternion Rotation;
-        public Vector3 LinearVelocity;
-        public Vector3 AngularVelocity;
-        public float RollDegrees;
-        public float PitchDegrees;
-        public float LastImpactStrength;
-        public float OceanTime;
-    }
-
     /// <summary>
-    /// Authoritative network wrapper for the ship rigidbody + buoyancy stack.
-    /// Host simulates the body and replicates compact motion/ocean state.
+    /// Authoritative gameplay wrapper for the ship. The host simulates the buoyant
+    /// Rigidbody; everyone else sees an interpolated proxy.
+    ///
+    /// HYBRID REPLICATION — the transform is NOT hand-rolled here anymore:
+    ///   • Pose + velocities (position, rotation, linear/angular velocity, kinematic,
+    ///     constraints) are owned by the Fusion Physics addon's <b>NetworkRigidbody3D</b>.
+    ///     It replicates them and interpolates proxies in its own Render(); proxies are
+    ///     forced kinematic by the addon. Writing the pose ourselves would fight it.
+    ///   • This component only replicates the two authority-only DERIVED values a proxy
+    ///     cannot recompute from the synced transform:
+    ///       - <see cref="LastImpactStrength"/> — a transient wave-impact event (buoyancy
+    ///         runs on the authority only, so proxies would otherwise never see it);
+    ///       - <see cref="OceanTime"/> — the authoritative ocean clock, so every peer
+    ///         samples the same waves. Single source of truth for ocean time (do NOT also
+    ///         put a NetworkOceanState in the scene, or the two will fight over the clock).
+    ///
+    /// Roll/pitch are intentionally not networked: they are pure functions of the replicated
+    /// rotation, so ShipDeckMotionProvider reads them straight off the buoyancy component
+    /// (which reads the synced transform) on every peer.
     /// </summary>
     [RequireComponent(typeof(Rigidbody))]
     public class NetworkShip : NetworkBehaviour
     {
         [SerializeField] private ShipBuoyancyController buoyancy;
         [SerializeField] private OceanWaveField waveField;
-
-        [Header("Proxy behaviour")]
-        [SerializeField] private bool disableBuoyancyOnProxies = true;
-        [SerializeField] private float proxySmoothing = 12f;
+        [SerializeField] private ShipSailSystem sailSystem;
 
         [Header("Collider safety")]
         [SerializeField] private bool disableNonConvexVisualMeshColliders = true;
 
-        [Header("Ocean time correction")]
+        [Header("Ocean time correction (proxies)")]
         [SerializeField] private float oceanTimeCorrectionThreshold = 0.1f;
         [SerializeField] private float oceanTimeCorrectionGain = 0.1f;
 
-        [Networked] public ShipNetState State { get; set; }
+        // Authority-only derived state. Everything geometric lives on NetworkRigidbody3D.
+        [Networked] public float LastImpactStrength { get; set; }
+        [Networked] public float OceanTime { get; set; }
 
         private Rigidbody _rb;
-        private bool _hasBuiltInTransformSync;
-        private ShipNetState _proxyState;
-        private bool _proxyStateReady;
+        private bool _hasNetworkRigidbody;
+
+        /// <summary>Latest wave-impact strength, valid on every peer (deck FX / camera shake).</summary>
+        public float NetworkedImpactStrength => LastImpactStrength;
 
         public override void Spawned()
         {
@@ -52,104 +57,78 @@ namespace RumOverboard.Networking
                 buoyancy = GetComponent<ShipBuoyancyController>();
             if (waveField == null)
                 waveField = FindAnyObjectByType<OceanWaveField>();
+            if (sailSystem == null)
+                sailSystem = GetComponent<ShipSailSystem>();
+            if (sailSystem == null)
+                sailSystem = gameObject.AddComponent<ShipSailSystem>();
+
+            if (sailSystem != null && sailSystem.WindSystem == null)
+                sailSystem.WindSystem = FindAnyObjectByType<OceanWindSystem>();
+
+            // Cosmetic bow/wake foam on every peer (derives speed from the synced transform).
+            if (GetComponent<ShipWakeFoam>() == null)
+                gameObject.AddComponent<ShipWakeFoam>();
 
             SanitizeVisualColliders();
 
-            _hasBuiltInTransformSync =
-                TryGetComponent(out Fusion.Addons.Physics.NetworkRigidbody3D _) ||
-                TryGetComponent(out NetworkTransform _);
-
-            ConfigureRigidbodyMode();
+            // The Physics addon must own the transform; without it the ship won't replicate.
+            _hasNetworkRigidbody = TryGetComponent(out Fusion.Addons.Physics.NetworkRigidbody3D _);
+            if (!_hasNetworkRigidbody)
+            {
+                Debug.LogError($"[NetworkShip] '{name}' has no NetworkRigidbody3D — the ship transform " +
+                               "will NOT replicate. Add the Fusion Physics addon's NetworkRigidbody3D to the " +
+                               "ship prefab and re-bake the NetworkObject (see SETUP_MULTIPLAYER.md).");
+            }
 
             if (buoyancy != null)
             {
                 buoyancy.ConfigureReferences(waveField, _rb);
-                if (disableBuoyancyOnProxies)
-                    buoyancy.enabled = HasStateAuthority;
+                if (HasStateAuthority)
+                {
+                    // Drive buoyancy from FixedUpdateNetwork (inside Fusion's physics tick), not from
+                    // Unity's FixedUpdate — deterministic timing with the Physics addon.
+                    buoyancy.SetExternallyDriven(true);
+                    buoyancy.enabled = true;
+                }
+                else
+                {
+                    // Proxies are kinematic (driven by NetworkRigidbody3D) and ride the snapshot.
+                    buoyancy.enabled = false;
+                }
             }
 
-            if (HasStateAuthority)
-            {
-                State = CaptureState();
-            }
-            else
-            {
-                _proxyState = State;
-                _proxyStateReady = true;
-                ApplyProxyState(_proxyState, 1f, true);
-            }
+            if (HasStateAuthority && waveField != null)
+                OceanTime = waveField.OceanTimeNow;
         }
 
         public override void FixedUpdateNetwork()
         {
-            if (_rb == null)
-                return;
-
             if (HasStateAuthority)
             {
-                if (disableBuoyancyOnProxies && buoyancy != null && !buoyancy.enabled)
-                    buoyancy.enabled = true;
+                if (waveField != null)
+                    OceanTime = waveField.OceanTimeNow;
 
-                State = CaptureState();
+                // Step buoyancy inside the network tick so PhysX (stepped by the Fusion addon)
+                // sees the forces on the same tick and resimulation stays deterministic.
+                if (buoyancy != null && waveField != null)
+                {
+                    buoyancy.Step(Runner.DeltaTime, waveField.OceanTimeNow);
+                    LastImpactStrength = buoyancy.LastImpactStrength;
+                }
+
                 return;
             }
 
-            if (disableBuoyancyOnProxies && buoyancy != null && buoyancy.enabled)
+            // Proxy: buoyancy stays off; nudge the local ocean clock toward the authority's.
+            if (buoyancy != null && buoyancy.enabled)
                 buoyancy.enabled = false;
-
-            bool hadProxyState = _proxyStateReady;
-            _proxyState = State;
-            _proxyStateReady = true;
 
             if (waveField != null)
             {
-                float error = _proxyState.OceanTime - waveField.OceanTimeNow;
+                float error = OceanTime - waveField.OceanTimeNow;
                 if (Mathf.Abs(error) > Mathf.Max(0.01f, oceanTimeCorrectionThreshold))
                     waveField.ApplyTimeCorrection(error * Mathf.Clamp01(oceanTimeCorrectionGain));
             }
-
-            if (!_hasBuiltInTransformSync && !hadProxyState)
-                ApplyProxyState(_proxyState, 1f, true);
-        }
-
-        public override void Render()
-        {
-            if (HasStateAuthority || !_proxyStateReady || _hasBuiltInTransformSync)
-                return;
-
-            float dt = Runner != null ? Runner.DeltaTime : Time.deltaTime;
-            float alpha = Mathf.Clamp01(Mathf.Max(0f, proxySmoothing) * Mathf.Max(0.0001f, dt));
-            ApplyProxyState(_proxyState, alpha, false);
-        }
-
-        private ShipNetState CaptureState()
-        {
-            ShipNetState s = State;
-            s.Position = _rb.position;
-            s.Rotation = _rb.rotation;
-            s.LinearVelocity = _rb.linearVelocity;
-            s.AngularVelocity = _rb.angularVelocity;
-            s.RollDegrees = buoyancy != null ? buoyancy.RollDegrees : NormalizeSigned(transform.eulerAngles.z);
-            s.PitchDegrees = buoyancy != null ? buoyancy.PitchDegrees : NormalizeSigned(transform.eulerAngles.x);
-            s.LastImpactStrength = buoyancy != null ? buoyancy.LastImpactStrength : 0f;
-            s.OceanTime = waveField != null ? waveField.OceanTimeNow : 0f;
-            return s;
-        }
-
-        private void ConfigureRigidbodyMode()
-        {
-            if (_rb == null)
-                return;
-
-            if (HasStateAuthority)
-            {
-                _rb.isKinematic = false;
-                return;
-            }
-
-            // Without built-in Fusion transform sync, proxies should be pose-driven only.
-            if (!_hasBuiltInTransformSync)
-                _rb.isKinematic = true;
         }
 
         private void SanitizeVisualColliders()
@@ -173,38 +152,6 @@ namespace RumOverboard.Networking
             if (disabled > 0)
                 Debug.LogWarning($"[NetworkShip] Disabled {disabled} non-convex MeshCollider components on '{name}' to keep dynamic rigidbody simulation valid.");
         }
-
-        private void ApplyProxyState(ShipNetState s, float alpha, bool snap)
-        {
-            if (_rb == null)
-                return;
-
-            if (snap)
-            {
-                _rb.position = s.Position;
-                _rb.rotation = s.Rotation;
-            }
-            else
-            {
-                _rb.position = Vector3.Lerp(_rb.position, s.Position, alpha);
-                _rb.rotation = Quaternion.Slerp(_rb.rotation, s.Rotation, alpha);
-            }
-
-            if (!_rb.isKinematic)
-            {
-                _rb.linearVelocity = Vector3.Lerp(_rb.linearVelocity, s.LinearVelocity, alpha);
-                _rb.angularVelocity = Vector3.Lerp(_rb.angularVelocity, s.AngularVelocity, alpha);
-            }
-        }
-
-        private static float NormalizeSigned(float angle)
-        {
-            angle %= 360f;
-            if (angle > 180f) angle -= 360f;
-            if (angle < -180f) angle += 360f;
-            return angle;
-        }
     }
 }
 #endif
-

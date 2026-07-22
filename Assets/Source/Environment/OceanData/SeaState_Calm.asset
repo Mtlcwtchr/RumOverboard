@@ -13,43 +13,59 @@ MonoBehaviour:
   m_Name: SeaState_Calm
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanSeaStateProfile
   waves:
-  - direction: {x: 1, y: 0}
-    amplitude: 0.35
-    wavelength: 26
-    speed: 2.5
+  - direction: {x: 1, y: 0.05}
+    amplitude: 0.55
+    wavelength: 28
+    speed: 2.6
     frequency: 1
-    steepness: 0.35
+    steepness: 0.42
     phase: 0
     physicsWeight: 1
     visualWeight: 1
     band: 0
-  - direction: {x: 0.3, y: 1}
-    amplitude: 0.18
-    wavelength: 15
-    speed: 2
+  - direction: {x: 0.35, y: 1}
+    amplitude: 0.28
+    wavelength: 16
+    speed: 2.1
     frequency: 1
-    steepness: 0.25
+    steepness: 0.32
     phase: 1.8
     physicsWeight: 1
     visualWeight: 1
     band: 1
+  - direction: {x: -0.5, y: 0.9}
+    amplitude: 0.15
+    wavelength: 9.5
+    speed: 1.9
+    frequency: 1
+    steepness: 0.28
+    phase: 3.4
+    physicsWeight: 1
+    visualWeight: 1
+    band: 1
   - direction: {x: 1, y: 0.6}
-    amplitude: 0.06
+    amplitude: 0.07
     wavelength: 6
     speed: 1.6
     frequency: 1
-    steepness: 0.2
+    steepness: 0.22
     phase: 0.3
     physicsWeight: 0
     visualWeight: 1
     band: 2
-  directionJitterDegrees: 1
+  choppiness: 1
+  swellDirectionDegrees: 205
+  swellAmplitude: 0.4
+  swellWavelength: 58
+  swellSpeed: 5.2
+  swellSteepness: 0.4
+  directionJitterDegrees: 1.5
   globalCurrentDirection: {x: 1, y: 0.1}
   globalCurrentSpeed: 0.15
-  foamIntensity: 0.15
-  crestFoamThreshold: 0.78
+  foamIntensity: 0.16
+  crestFoamThreshold: 0.76
   shallowColorBoost: 0.5
   buoyancyMultiplier: 0.9
   dragMultiplier: 0.85
-  waveImpactMultiplier: 0.75
+  waveImpactMultiplier: 0.8
   splashFrequencyScale: 0.5

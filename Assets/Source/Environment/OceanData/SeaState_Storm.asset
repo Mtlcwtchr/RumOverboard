@@ -14,9 +14,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanSeaStateProfile
   waves:
   - direction: {x: 1, y: 0.3}
-    amplitude: 1.35
-    wavelength: 44
-    speed: 5.2
+    amplitude: 2.2
+    wavelength: 48
+    speed: 5.6
     frequency: 1
     steepness: 0.62
     phase: 0
@@ -24,62 +24,78 @@ MonoBehaviour:
     visualWeight: 1
     band: 0
   - direction: {x: -0.4, y: 1}
-    amplitude: 0.95
-    wavelength: 28
-    speed: 4.5
+    amplitude: 1.5
+    wavelength: 30
+    speed: 4.8
     frequency: 1
-    steepness: 0.5
+    steepness: 0.54
     phase: 0.8
     physicsWeight: 1
     visualWeight: 1
     band: 0
   - direction: {x: 0.2, y: 1}
-    amplitude: 0.68
-    wavelength: 20
-    speed: 4
+    amplitude: 1.1
+    wavelength: 22
+    speed: 4.2
     frequency: 1
-    steepness: 0.43
+    steepness: 0.46
     phase: 1.9
     physicsWeight: 1
     visualWeight: 1
     band: 0
   - direction: {x: 1, y: 0.5}
-    amplitude: 0.38
-    wavelength: 11
-    speed: 3.2
+    amplitude: 0.6
+    wavelength: 12
+    speed: 3.4
     frequency: 1
-    steepness: 0.36
+    steepness: 0.4
     phase: 2.5
     physicsWeight: 1
     visualWeight: 1
     band: 1
   - direction: {x: -1, y: 0.1}
-    amplitude: 0.32
-    wavelength: 8.5
-    speed: 3.4
+    amplitude: 0.5
+    wavelength: 9
+    speed: 3.5
     frequency: 1
-    steepness: 0.33
+    steepness: 0.36
     phase: 3.1
     physicsWeight: 1
     visualWeight: 1
     band: 1
-  - direction: {x: 0.8, y: -0.2}
-    amplitude: 0.12
-    wavelength: 5
-    speed: 2.5
+  - direction: {x: -0.3, y: -1}
+    amplitude: 0.33
+    wavelength: 6.5
+    speed: 3.0
     frequency: 1
-    steepness: 0.24
+    steepness: 0.32
+    phase: 4.4
+    physicsWeight: 1
+    visualWeight: 1
+    band: 1
+  - direction: {x: 0.8, y: -0.2}
+    amplitude: 0.16
+    wavelength: 4.8
+    speed: 2.6
+    frequency: 1
+    steepness: 0.26
     phase: 1.2
     physicsWeight: 0
     visualWeight: 1
     band: 2
+  choppiness: 1.15
+  swellDirectionDegrees: 12
+  swellAmplitude: 2.6
+  swellWavelength: 92
+  swellSpeed: 8.4
+  swellSteepness: 0.56
   directionJitterDegrees: 10
   globalCurrentDirection: {x: 0.7, y: 0.7}
   globalCurrentSpeed: 0.7
-  foamIntensity: 0.85
-  crestFoamThreshold: 0.52
+  foamIntensity: 0.9
+  crestFoamThreshold: 0.48
   shallowColorBoost: 0.5
   buoyancyMultiplier: 1.35
   dragMultiplier: 1.45
-  waveImpactMultiplier: 1.55
-  splashFrequencyScale: 1.75
+  waveImpactMultiplier: 1.7
+  splashFrequencyScale: 1.85

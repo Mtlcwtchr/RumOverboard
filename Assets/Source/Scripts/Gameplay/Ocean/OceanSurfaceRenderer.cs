@@ -2,6 +2,18 @@ using UnityEngine;
 
 namespace RumOverboard.Gameplay.Ocean
 {
+    /// <summary>
+    /// Draws the ocean as ONE radial mesh centred on the ship/camera and displaced entirely on the
+    /// GPU (see the vertex stage of OceanStylizedURP). The mesh is built once: vertices are packed
+    /// densely near the centre and sparsely toward the rim, so detail is highest around the ship
+    /// (dynamic LOD) and the far field is cheap — and it fades to a flat, single-colour surface via
+    /// the shader's distance falloff. Each frame we only reposition the mesh to follow the ship;
+    /// the CPU never touches vertices, which is what makes it cheap (the old per-vertex CPU
+    /// displacement was the framerate sink).
+    ///
+    /// Physics still samples waves on the CPU (OceanWaveField.Sample) — but only at the handful of
+    /// buoyancy points, which is negligible.
+    /// </summary>
     public class OceanSurfaceRenderer : MonoBehaviour
     {
         private const int MaxShaderWaves = 12;
@@ -12,25 +24,22 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private Material oceanMaterial;
         [SerializeField] private bool regenerateOnQualityChange = true;
 
-        private struct LodData
-        {
-            public string name;
-            public float innerSize;
-            public float outerSize;
-            public int resolution;
-            public int updateModulo;
+        [Header("Radial mesh (dynamic LOD around the ship)")]
+        [Tooltip("Radial subdivisions (centre→rim). More = finer LOD. 0 = derive from quality preset.")]
+        [SerializeField] private int radialRings = 0;
+        [Tooltip("Angular subdivisions. 0 = radialRings * 2.")]
+        [SerializeField] private int radialSectors = 0;
+        [Tooltip(">1 packs vertices toward the centre (near the ship). 2 = quadratic.")]
+        [SerializeField] private float radialExponent = 2f;
+        [Tooltip("Mesh radius (metres). 0 = use the quality preset's far size.")]
+        [SerializeField] private float meshRadius = 0f;
 
-            public Mesh mesh;
-            public Transform transform;
-            public MeshFilter filter;
-            public MeshRenderer renderer;
+        [Header("Detail falloff (big ocean, calm distance)")]
+        [Tooltip("Within this distance from the camera the waves are full height.")]
+        [SerializeField] private float detailFadeStart = 110f;
+        [Tooltip("Beyond this the surface is flat and single-colour; between the two it eases off.")]
+        [SerializeField] private float detailFadeEnd = 230f;
 
-            public Vector3[] baseVertices;
-            public Vector3[] deformedVertices;
-            public Vector3[] deformedNormals;
-        }
-
-        private readonly LodData[] _lods = new LodData[3];
         private readonly int _propOceanTime = Shader.PropertyToID("_OceanTime");
         private readonly int _propFoamIntensity = Shader.PropertyToID("_FoamIntensity");
         private readonly int _propWaveCount = Shader.PropertyToID("_WaveCount");
@@ -40,11 +49,18 @@ namespace RumOverboard.Gameplay.Ocean
         private readonly int _propShallowDepthMax = Shader.PropertyToID("_ShallowDepthMax");
         private readonly int _propShallowColorBoost = Shader.PropertyToID("_ShallowColorBoost");
         private readonly int _propCrestFoamThreshold = Shader.PropertyToID("_CrestFoamThreshold");
+        private readonly int _propDetailFadeStart = Shader.PropertyToID("_DetailFadeStart");
+        private readonly int _propDetailFadeEnd = Shader.PropertyToID("_DetailFadeEnd");
         private MaterialPropertyBlock _props;
 
         private Vector4[] _waveDirAmpBuffer;
         private Vector4[] _waveParamsBuffer;
 
+        private GameObject _surfaceGo;
+        private MeshFilter _filter;
+        private MeshRenderer _renderer;
+        private Mesh _mesh;
+        private float _builtRadius;
         private OceanQualityPreset _lastQuality;
         private bool _warnedMissingQuality;
 
@@ -53,21 +69,20 @@ namespace RumOverboard.Gameplay.Ocean
             EnsureRuntimeBuffers();
 
             if (waveField == null)
-                waveField = FindFirstObjectByType<OceanWaveField>();
+                waveField = FindAnyObjectByType<OceanWaveField>();
             if (followCamera == null)
                 followCamera = Camera.main;
             if (followTarget == null && followCamera != null)
                 followTarget = followCamera.transform;
 
-            BuildMeshes();
+            BuildMesh();
         }
 
         private void OnEnable()
         {
             EnsureRuntimeBuffers();
-
-            if (_lods[0].mesh == null)
-                BuildMeshes();
+            if (_mesh == null)
+                BuildMesh();
         }
 
         private void LateUpdate()
@@ -78,19 +93,16 @@ namespace RumOverboard.Gameplay.Ocean
                 return;
 
             if (regenerateOnQualityChange && waveField.Quality != _lastQuality)
-                BuildMeshes();
+                BuildMesh();
 
             FollowReferenceTarget();
-            UpdateVisualSurface(Time.frameCount);
             UpdateMaterialProperties();
         }
 
-        private void BuildMeshes()
+        private void BuildMesh()
         {
             if (waveField == null)
                 return;
-
-            CleanupMeshes();
 
             OceanQualityPreset q = waveField.Quality;
             if (q == null)
@@ -106,44 +118,37 @@ namespace RumOverboard.Gameplay.Ocean
             _lastQuality = q;
             _warnedMissingQuality = false;
 
-            SetupLod(0, "Near", 0f, q.nearSize, q.nearResolution, 1);
-            SetupLod(1, "Mid", q.nearSize * 0.92f, q.midSize, q.midResolution, 2);
-            SetupLod(2, "Far", q.midSize * 0.94f, q.farSize, q.farResolution, 4);
+            int rings = radialRings > 0 ? radialRings : Mathf.Clamp(q.nearResolution, 24, 160);
+            int sectors = radialSectors > 0 ? radialSectors : Mathf.Clamp(rings * 2, 48, 400);
+            float radius = meshRadius > 0f ? meshRadius : Mathf.Max(64f, q.farSize);
+            _builtRadius = radius;
+
+            EnsureSurfaceObject();
+
+            if (_mesh != null)
+            {
+                if (Application.isPlaying) Destroy(_mesh);
+                else DestroyImmediate(_mesh);
+            }
+
+            _mesh = GenerateRadialMesh(rings, sectors, radius, Mathf.Max(1f, radialExponent));
+            _filter.sharedMesh = _mesh;
         }
 
-        private void SetupLod(int index, string lodName, float innerSize, float outerSize, int resolution, int updateModulo)
+        private void EnsureSurfaceObject()
         {
-            var go = new GameObject("OceanLOD_" + lodName);
-            go.transform.SetParent(transform, false);
-
-            var filter = go.AddComponent<MeshFilter>();
-            var renderer = go.AddComponent<MeshRenderer>();
-            if (oceanMaterial != null)
-                renderer.sharedMaterial = oceanMaterial;
-
-            Mesh mesh = index == 0
-                ? GeneratePlaneMesh(resolution, outerSize)
-                : GenerateRingMesh(resolution, innerSize, outerSize);
-
-            filter.sharedMesh = mesh;
-
-            LodData lod = new LodData
+            if (_surfaceGo == null)
             {
-                name = lodName,
-                innerSize = innerSize,
-                outerSize = outerSize,
-                resolution = resolution,
-                updateModulo = updateModulo,
-                mesh = mesh,
-                transform = go.transform,
-                filter = filter,
-                renderer = renderer,
-                baseVertices = mesh.vertices,
-                deformedVertices = (Vector3[])mesh.vertices.Clone(),
-                deformedNormals = new Vector3[mesh.vertexCount],
-            };
+                _surfaceGo = new GameObject("OceanSurface");
+                _surfaceGo.transform.SetParent(transform, false);
+                _filter = _surfaceGo.AddComponent<MeshFilter>();
+                _renderer = _surfaceGo.AddComponent<MeshRenderer>();
+                _renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                _renderer.receiveShadows = false;
+            }
 
-            _lods[index] = lod;
+            if (oceanMaterial != null)
+                _renderer.sharedMaterial = oceanMaterial;
         }
 
         private void FollowReferenceTarget()
@@ -154,49 +159,15 @@ namespace RumOverboard.Gameplay.Ocean
             if (target == null)
                 return;
 
-            OceanQualityPreset q = waveField != null ? waveField.Quality : null;
-            float snap = q != null ? Mathf.Max(0.5f, q.nearSize / Mathf.Max(8f, q.nearResolution)) : 1f;
-
-            float x = Mathf.Round(target.position.x / snap) * snap;
-            float z = Mathf.Round(target.position.z / snap) * snap;
-            transform.position = new Vector3(x, 0f, z);
-        }
-
-        private void UpdateVisualSurface(int frame)
-        {
-            float time = waveField.OceanTimeNow;
-
-            for (int lodIndex = 0; lodIndex < _lods.Length; lodIndex++)
-            {
-                LodData lod = _lods[lodIndex];
-                if (lod.mesh == null)
-                    continue;
-
-                if (lod.updateModulo > 1 && frame % lod.updateModulo != 0)
-                    continue;
-
-                for (int i = 0; i < lod.baseVertices.Length; i++)
-                {
-                    Vector3 baseLocal = lod.baseVertices[i];
-                    Vector3 worldBase = lod.transform.TransformPoint(baseLocal.x, 0f, baseLocal.z);
-
-                    waveField.SampleVisualSurface(worldBase, time, out Vector3 disp, out Vector3 normal);
-
-                    lod.deformedVertices[i] = new Vector3(baseLocal.x + disp.x, disp.y, baseLocal.z + disp.z);
-                    lod.deformedNormals[i] = normal;
-                }
-
-                lod.mesh.vertices = lod.deformedVertices;
-                lod.mesh.normals = lod.deformedNormals;
-                lod.mesh.RecalculateBounds();
-
-                _lods[lodIndex] = lod;
-            }
+            // No snapping needed: displacement is a world-space function of XZ (GPU), so translating
+            // the mesh doesn't make waves swim. Just centre it on the ship at sea level.
+            float seaLevel = waveField != null && waveField.Config != null ? waveField.Config.seaLevel : 0f;
+            transform.position = new Vector3(target.position.x, seaLevel, target.position.z);
         }
 
         private void UpdateMaterialProperties()
         {
-            if (oceanMaterial == null)
+            if (oceanMaterial == null || _renderer == null)
                 return;
 
             EnsureRuntimeBuffers();
@@ -213,14 +184,12 @@ namespace RumOverboard.Gameplay.Ocean
             _props.SetFloat(_propShallowDepthMax, shallowDepth);
             _props.SetFloat(_propShallowColorBoost, profile != null ? profile.shallowColorBoost : 0.5f);
             _props.SetInt(_propWaveCount, waveCount);
+            _props.SetFloat(_propDetailFadeStart, Mathf.Max(0f, detailFadeStart));
+            _props.SetFloat(_propDetailFadeEnd, Mathf.Max(detailFadeStart + 0.01f, detailFadeEnd));
             _props.SetVectorArray(_propWaveDirAmp, _waveDirAmpBuffer);
             _props.SetVectorArray(_propWaveParams, _waveParamsBuffer);
 
-            for (int i = 0; i < _lods.Length; i++)
-            {
-                if (_lods[i].renderer != null)
-                    _lods[i].renderer.SetPropertyBlock(_props);
-            }
+            _renderer.SetPropertyBlock(_props);
         }
 
         private void EnsureRuntimeBuffers()
@@ -243,25 +212,51 @@ namespace RumOverboard.Gameplay.Ocean
                 _waveParamsBuffer[i] = Vector4.zero;
             }
 
-            if (profile == null || profile.waves == null)
+            if (profile == null)
                 return 0;
 
+            // Bake the SAME CPU-side modifiers the physics path uses into the shader uniforms, so the
+            // GPU-displaced surface and its normals/foam match the buoyancy surface:
+            //   directional jitter, choppiness, runtime amplitude/speed, and the dominant swell.
+            float choppiness = Mathf.Clamp(profile.choppiness, 0f, 2f);
+            float ampMul = waveField != null ? waveField.RuntimeWaveAmplitudeMultiplier : 1f;
+            float speedMul = waveField != null ? waveField.RuntimeWaveSpeedMultiplier : 1f;
+            float jitterDeg = profile.directionJitterDegrees;
+            uint seed = waveField != null && waveField.Config != null ? waveField.Config.sharedSeed : 1337u;
+
             int count = 0;
-            for (int i = 0; i < profile.waves.Length && count < MaxShaderWaves; i++)
+
+            if (profile.HasSwell)
+                PackWave(ref count, profile.BuildSwellWave(), choppiness, ampMul, speedMul, jitterDeg, seed, OceanWaveField.SwellWaveIndex);
+
+            if (profile.waves != null)
             {
-                var wave = profile.waves[i];
-                if (!wave.IsValid || wave.visualWeight <= 0.0001f)
-                    continue;
+                for (int i = 0; i < profile.waves.Length && count < MaxShaderWaves; i++)
+                {
+                    var wave = profile.waves[i];
+                    if (!wave.IsValid || wave.visualWeight <= 0.0001f)
+                        continue;
 
-                Vector2 dir = wave.DirectionNormalized;
-                float k = (2f * Mathf.PI / Mathf.Max(0.01f, wave.wavelength)) * Mathf.Max(0.001f, wave.frequency);
-
-                _waveDirAmpBuffer[count] = new Vector4(dir.x, dir.y, wave.amplitude, wave.steepness);
-                _waveParamsBuffer[count] = new Vector4(k, wave.speed, wave.phase, wave.visualWeight);
-                count++;
+                    PackWave(ref count, wave, choppiness, ampMul, speedMul, jitterDeg, seed, i);
+                }
             }
 
             return count;
+        }
+
+        private void PackWave(ref int count, in OceanWaveDefinition wave, float choppiness,
+            float ampMul, float speedMul, float jitterDeg, uint seed, int index)
+        {
+            if (count >= MaxShaderWaves)
+                return;
+
+            Vector2 dir = OceanWaveMath.JitteredDirection(wave.DirectionNormalized, jitterDeg, seed, index);
+            float k = (2f * Mathf.PI / Mathf.Max(0.01f, wave.wavelength)) * Mathf.Max(0.001f, wave.frequency);
+            float steep = Mathf.Clamp01(wave.steepness * choppiness);
+
+            _waveDirAmpBuffer[count] = new Vector4(dir.x, dir.y, wave.amplitude * ampMul, steep);
+            _waveParamsBuffer[count] = new Vector4(k, wave.speed * speedMul, wave.phase, wave.visualWeight);
+            count++;
         }
 
         private float ResolveShallowDepthMax()
@@ -272,156 +267,102 @@ namespace RumOverboard.Gameplay.Ocean
             return Mathf.Max(0.5f, waveField.Config.depthProfile.shallowDepth);
         }
 
-        private static Mesh GeneratePlaneMesh(int resolution, float size)
+        // A single disk: one centre vertex plus concentric rings whose radius grows as
+        // (ring / rings)^exponent, so vertices bunch up near the ship and thin out to the rim.
+        private static Mesh GenerateRadialMesh(int rings, int sectors, float maxRadius, float exponent)
         {
-            int vertsPerAxis = resolution + 1;
-            int vertCount = vertsPerAxis * vertsPerAxis;
-            int triCount = resolution * resolution * 6;
-
+            int vertCount = 1 + rings * sectors;
             var vertices = new Vector3[vertCount];
             var uv = new Vector2[vertCount];
-            var triangles = new int[triCount];
+            var normals = new Vector3[vertCount];
 
-            float half = size * 0.5f;
-            float step = size / resolution;
-            int v = 0;
+            vertices[0] = Vector3.zero;
+            uv[0] = new Vector2(0.5f, 0.5f);
+            normals[0] = Vector3.up;
 
-            for (int z = 0; z <= resolution; z++)
+            for (int r = 1; r <= rings; r++)
             {
-                for (int x = 0; x <= resolution; x++)
+                float radius = maxRadius * Mathf.Pow(r / (float)rings, exponent);
+                for (int s = 0; s < sectors; s++)
                 {
-                    vertices[v] = new Vector3(-half + x * step, 0f, -half + z * step);
-                    uv[v] = new Vector2(x / (float)resolution, z / (float)resolution);
-                    v++;
+                    float angle = (s / (float)sectors) * Mathf.PI * 2f;
+                    float cx = Mathf.Cos(angle);
+                    float sz = Mathf.Sin(angle);
+                    int idx = 1 + (r - 1) * sectors + s;
+                    vertices[idx] = new Vector3(cx * radius, 0f, sz * radius);
+                    uv[idx] = new Vector2(0.5f + cx * 0.5f * (r / (float)rings), 0.5f + sz * 0.5f * (r / (float)rings));
+                    normals[idx] = Vector3.up;
                 }
             }
 
+            // Triangles: centre fan + quads between successive rings. Winding chosen so the top
+            // face (normal +Y) is front-facing under Cull Back.
+            int triCount = sectors + (rings - 1) * sectors * 2;
+            var triangles = new int[triCount * 3];
             int t = 0;
-            for (int z = 0; z < resolution; z++)
-            {
-                for (int x = 0; x < resolution; x++)
-                {
-                    int i0 = z * vertsPerAxis + x;
-                    int i1 = i0 + 1;
-                    int i2 = i0 + vertsPerAxis;
-                    int i3 = i2 + 1;
 
-                    triangles[t++] = i0;
-                    triangles[t++] = i2;
-                    triangles[t++] = i1;
-                    triangles[t++] = i1;
-                    triangles[t++] = i2;
-                    triangles[t++] = i3;
+            // Centre fan (centre → first ring).
+            for (int s = 0; s < sectors; s++)
+            {
+                int s1 = (s + 1) % sectors;
+                triangles[t++] = 0;
+                triangles[t++] = RingVert(1, s1, sectors);
+                triangles[t++] = RingVert(1, s, sectors);
+            }
+
+            // Rings.
+            for (int r = 1; r < rings; r++)
+            {
+                for (int s = 0; s < sectors; s++)
+                {
+                    int s1 = (s + 1) % sectors;
+                    int innerS = RingVert(r, s, sectors);
+                    int innerS1 = RingVert(r, s1, sectors);
+                    int outerS = RingVert(r + 1, s, sectors);
+                    int outerS1 = RingVert(r + 1, s1, sectors);
+
+                    triangles[t++] = innerS;
+                    triangles[t++] = innerS1;
+                    triangles[t++] = outerS;
+
+                    triangles[t++] = innerS1;
+                    triangles[t++] = outerS1;
+                    triangles[t++] = outerS;
                 }
             }
 
-            var mesh = new Mesh { name = "OceanPlane" };
+            var mesh = new Mesh { name = "OceanRadialSurface" };
+            mesh.indexFormat = vertCount > 65000
+                ? UnityEngine.Rendering.IndexFormat.UInt32
+                : UnityEngine.Rendering.IndexFormat.UInt16;
             mesh.vertices = vertices;
             mesh.uv = uv;
+            mesh.normals = normals;
             mesh.triangles = triangles;
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
+            // Big fixed bounds: the GPU displaces vertices, so let it never frustum-cull the disk.
+            mesh.bounds = new Bounds(Vector3.zero, new Vector3(maxRadius * 2f, 80f, maxRadius * 2f));
             return mesh;
         }
 
-        private static Mesh GenerateRingMesh(int resolution, float innerSize, float outerSize)
-        {
-            int vertsPerAxis = resolution + 1;
-            int vertCount = vertsPerAxis * vertsPerAxis;
-
-            var vertices = new Vector3[vertCount];
-            var uv = new Vector2[vertCount];
-            int[] triangles = new int[resolution * resolution * 6];
-
-            float half = outerSize * 0.5f;
-            float innerHalf = innerSize * 0.5f;
-            float step = outerSize / resolution;
-            int v = 0;
-
-            for (int z = 0; z <= resolution; z++)
-            {
-                for (int x = 0; x <= resolution; x++)
-                {
-                    vertices[v] = new Vector3(-half + x * step, 0f, -half + z * step);
-                    uv[v] = new Vector2(x / (float)resolution, z / (float)resolution);
-                    v++;
-                }
-            }
-
-            int t = 0;
-            for (int z = 0; z < resolution; z++)
-            {
-                for (int x = 0; x < resolution; x++)
-                {
-                    int i0 = z * vertsPerAxis + x;
-                    int i1 = i0 + 1;
-                    int i2 = i0 + vertsPerAxis;
-                    int i3 = i2 + 1;
-
-                    Vector3 c0 = vertices[i0];
-                    Vector3 c1 = vertices[i1];
-                    Vector3 c2 = vertices[i2];
-                    Vector3 c3 = vertices[i3];
-
-                    bool inside0 = Mathf.Abs(c0.x) < innerHalf && Mathf.Abs(c0.z) < innerHalf;
-                    bool inside1 = Mathf.Abs(c1.x) < innerHalf && Mathf.Abs(c1.z) < innerHalf;
-                    bool inside2 = Mathf.Abs(c2.x) < innerHalf && Mathf.Abs(c2.z) < innerHalf;
-                    bool inside3 = Mathf.Abs(c3.x) < innerHalf && Mathf.Abs(c3.z) < innerHalf;
-
-                    if (inside0 && inside1 && inside2 && inside3)
-                        continue;
-
-                    triangles[t++] = i0;
-                    triangles[t++] = i2;
-                    triangles[t++] = i1;
-                    triangles[t++] = i1;
-                    triangles[t++] = i2;
-                    triangles[t++] = i3;
-                }
-            }
-
-            if (t < triangles.Length)
-            {
-                int[] compact = new int[t];
-                System.Array.Copy(triangles, compact, t);
-                triangles = compact;
-            }
-
-            var mesh = new Mesh { name = "OceanRing" };
-            mesh.vertices = vertices;
-            mesh.uv = uv;
-            mesh.triangles = triangles;
-            mesh.RecalculateNormals();
-            mesh.RecalculateBounds();
-            return mesh;
-        }
-
-        private void CleanupMeshes()
-        {
-            for (int i = 0; i < _lods.Length; i++)
-            {
-                if (_lods[i].mesh != null)
-                {
-                    if (Application.isPlaying)
-                        Destroy(_lods[i].mesh);
-                    else
-                        DestroyImmediate(_lods[i].mesh);
-                }
-
-                if (_lods[i].transform != null)
-                {
-                    if (Application.isPlaying)
-                        Destroy(_lods[i].transform.gameObject);
-                    else
-                        DestroyImmediate(_lods[i].transform.gameObject);
-                }
-            }
-        }
+        private static int RingVert(int ring, int sector, int sectors) => 1 + (ring - 1) * sectors + sector;
 
         private void OnDisable()
         {
-            CleanupMeshes();
+            if (_mesh != null)
+            {
+                if (Application.isPlaying) Destroy(_mesh);
+                else DestroyImmediate(_mesh);
+                _mesh = null;
+            }
+
+            if (_surfaceGo != null)
+            {
+                if (Application.isPlaying) Destroy(_surfaceGo);
+                else DestroyImmediate(_surfaceGo);
+                _surfaceGo = null;
+                _filter = null;
+                _renderer = null;
+            }
         }
     }
 }
-

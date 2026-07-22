@@ -6,6 +6,7 @@ namespace RumOverboard.Gameplay.Ocean
     {
         [SerializeField] private OceanSimulationConfig config;
         [SerializeField] private OceanCurrentSystem currentSystem;
+        [SerializeField] private OceanWindSystem windSystem;
         [SerializeField] private OceanDepthProvider depthProvider;
         [SerializeField] private OceanQualityLevel qualityLevel = OceanQualityLevel.Medium;
 
@@ -16,6 +17,20 @@ namespace RumOverboard.Gameplay.Ocean
 
         [Header("Debug")]
         [SerializeField] private bool logStateChanges;
+
+        [Header("Runtime tuning")]
+        [SerializeField] [Range(0f, 4f)] private float runtimeWaveAmplitudeMultiplier = 1f;
+        [SerializeField] [Range(0.1f, 4f)] private float runtimeWaveSpeedMultiplier = 1f;
+        [SerializeField] [Range(0f, 4f)] private float runtimeCurrentSpeedMultiplier = 1f;
+        [SerializeField] [Range(-180f, 180f)] private float runtimeCurrentDirectionOffsetDegrees;
+
+        [Header("Wind/current coupling")]
+        [SerializeField] [Range(0f, 0.5f)] private float windToCurrentFactor = 0.06f;
+        [SerializeField] [Min(0f)] private float maxWindDrivenCurrent = 2.5f;
+
+        // Distinct jitter index for the synthesized swell wave (kept out of the authored-wave index range).
+        // Public so the GPU path (OceanSurfaceRenderer) bakes the swell with the identical jitter.
+        public const int SwellWaveIndex = 251;
 
         private OceanSeaStateProfile _activeProfile;
         private OceanSeaStateProfile _targetProfile;
@@ -29,6 +44,80 @@ namespace RumOverboard.Gameplay.Ocean
         public OceanSeaStateProfile ActiveProfile => _activeProfile;
         public OceanQualityPreset Quality => _quality;
 
+        // Falls back to the config's default so editor/debug queries work before Awake runs.
+        private OceanSeaStateProfile QueryProfile =>
+            _activeProfile != null ? _activeProfile : (config != null ? config.defaultProfile : null);
+
+        /// <summary>Name of the active sea state (for HUD/debug).</summary>
+        public string ActiveProfileName => QueryProfile != null ? QueryProfile.name : "(none)";
+
+        /// <summary>Heading of the strongest wave component (swell or biggest authored wave), XZ world vector.</summary>
+        public Vector3 DominantWaveDirection
+        {
+            get
+            {
+                var p = QueryProfile;
+                if (p == null) return Vector3.forward;
+                Vector2 d = p.DominantWaveDirection2D;
+                return new Vector3(d.x, 0f, d.y);
+            }
+        }
+
+        /// <summary>Rough significant wave height (peak-to-trough-ish), scaled by runtime amplitude — for debug gauges.</summary>
+        public float EstimatedWaveHeight =>
+            QueryProfile != null ? QueryProfile.EstimatedWaveHeight() * runtimeWaveAmplitudeMultiplier : 0f;
+
+        /// <summary>Convenience: surface height at a world position sampled at the current ocean time.</summary>
+        public float SampleHeight(Vector3 worldPos) => Sample(worldPos, OceanTimeNow).surfaceHeight;
+
+        public float RuntimeWaveAmplitudeMultiplier
+        {
+            get => runtimeWaveAmplitudeMultiplier;
+            set => runtimeWaveAmplitudeMultiplier = Mathf.Clamp(value, 0f, 4f);
+        }
+
+        public float RuntimeWaveSpeedMultiplier
+        {
+            get => runtimeWaveSpeedMultiplier;
+            set => runtimeWaveSpeedMultiplier = Mathf.Clamp(value, 0.1f, 4f);
+        }
+
+        public float RuntimeCurrentSpeedMultiplier
+        {
+            get => runtimeCurrentSpeedMultiplier;
+            set => runtimeCurrentSpeedMultiplier = Mathf.Clamp(value, 0f, 4f);
+        }
+
+        public float RuntimeCurrentDirectionOffsetDegrees
+        {
+            get => runtimeCurrentDirectionOffsetDegrees;
+            set => runtimeCurrentDirectionOffsetDegrees = Mathf.Clamp(value, -180f, 180f);
+        }
+
+        public float OceanTimeScale
+        {
+            get => oceanTimeScale;
+            set => oceanTimeScale = Mathf.Max(0f, value);
+        }
+
+        public OceanWindSystem WindSystem
+        {
+            get => windSystem;
+            set => windSystem = value;
+        }
+
+        public float WindToCurrentFactor
+        {
+            get => windToCurrentFactor;
+            set => windToCurrentFactor = Mathf.Clamp(value, 0f, 0.5f);
+        }
+
+        public float MaxWindDrivenCurrent
+        {
+            get => maxWindDrivenCurrent;
+            set => maxWindDrivenCurrent = Mathf.Max(0f, value);
+        }
+
         private void Awake()
         {
             ResolveReferences();
@@ -40,8 +129,22 @@ namespace RumOverboard.Gameplay.Ocean
         {
             if (oceanTimeScale < 0f)
                 oceanTimeScale = 0f;
+            runtimeWaveAmplitudeMultiplier = Mathf.Clamp(runtimeWaveAmplitudeMultiplier, 0f, 4f);
+            runtimeWaveSpeedMultiplier = Mathf.Clamp(runtimeWaveSpeedMultiplier, 0.1f, 4f);
+            runtimeCurrentSpeedMultiplier = Mathf.Clamp(runtimeCurrentSpeedMultiplier, 0f, 4f);
+            runtimeCurrentDirectionOffsetDegrees = Mathf.Clamp(runtimeCurrentDirectionOffsetDegrees, -180f, 180f);
+            windToCurrentFactor = Mathf.Clamp(windToCurrentFactor, 0f, 0.5f);
+            maxWindDrivenCurrent = Mathf.Max(0f, maxWindDrivenCurrent);
             if (config != null)
                 RebuildQuality();
+        }
+
+        public void ResetRuntimeTuning()
+        {
+            runtimeWaveAmplitudeMultiplier = 1f;
+            runtimeWaveSpeedMultiplier = 1f;
+            runtimeCurrentSpeedMultiplier = 1f;
+            runtimeCurrentDirectionOffsetDegrees = 0f;
         }
 
         public float OceanTimeNow
@@ -177,6 +280,10 @@ namespace RumOverboard.Gameplay.Ocean
         {
             if (currentSystem == null)
                 currentSystem = GetComponentInChildren<OceanCurrentSystem>();
+            if (windSystem == null)
+                windSystem = GetComponentInChildren<OceanWindSystem>();
+            if (windSystem == null)
+                windSystem = FindAnyObjectByType<OceanWindSystem>();
             if (depthProvider == null)
                 depthProvider = GetComponentInChildren<OceanDepthProvider>();
         }
@@ -224,6 +331,23 @@ namespace RumOverboard.Gameplay.Ocean
             if (currentSystem != null)
                 global += currentSystem.EvaluateCurrent(worldPos, time);
 
+            if (windSystem != null && windToCurrentFactor > 0f)
+            {
+                Vector3 windDriven = windSystem.EvaluateWind(worldPos, time);
+                windDriven.y = 0f;
+                windDriven *= windToCurrentFactor;
+
+                if (maxWindDrivenCurrent > 0f)
+                    windDriven = Vector3.ClampMagnitude(windDriven, maxWindDrivenCurrent);
+
+                global += windDriven;
+            }
+
+            if (Mathf.Abs(runtimeCurrentDirectionOffsetDegrees) > 0.001f)
+                global = Quaternion.Euler(0f, runtimeCurrentDirectionOffsetDegrees, 0f) * global;
+
+            global *= runtimeCurrentSpeedMultiplier;
+
             return global;
         }
 
@@ -270,6 +394,10 @@ namespace RumOverboard.Gameplay.Ocean
             if (profile == null || profile.waves == null)
                 return result;
 
+            float waveAmplitudeMul = runtimeWaveAmplitudeMultiplier;
+            float waveTime = time * runtimeWaveSpeedMultiplier;
+            float choppiness = Mathf.Clamp(profile.choppiness, 0f, 2f);
+
             int maxLarge = _quality != null ? _quality.maxCpuLargeWaves : 6;
             int maxMedium = _quality != null ? _quality.maxCpuMediumWaves : 6;
             int largeCount = 0;
@@ -277,6 +405,16 @@ namespace RumOverboard.Gameplay.Ocean
 
             uint seed = config != null ? config.sharedSeed : 1337u;
             seed += (uint)(seedOffset * 997f);
+
+            // Dominant directional swell (the "big rollers from a heading"). Added first and NOT
+            // subject to the large-wave cap, since it's the defining wave of the sea state.
+            if (profile.HasSwell)
+            {
+                var swell = profile.BuildSwellWave();
+                swell.steepness = Mathf.Clamp01(swell.steepness * choppiness);
+                AccumulateWave(ref result, swell, posXZ, waveTime, profile.directionJitterDegrees,
+                    seed, SwellWaveIndex, physicsPass, depthDamping, waveAmplitudeMul);
+            }
 
             for (int i = 0; i < profile.waves.Length; i++)
             {
@@ -300,26 +438,40 @@ namespace RumOverboard.Gameplay.Ocean
                     mediumCount++;
                 }
 
-                var accum = OceanWaveMath.EvaluateWave(
-                    wave,
-                    posXZ,
-                    time,
-                    profile.directionJitterDegrees,
-                    seed,
-                    i,
-                    physicsPass);
+                // Global crest-sharpness control. Clamped per wave so Gerstner crests don't self-intersect.
+                wave.steepness = Mathf.Clamp01(wave.steepness * choppiness);
 
                 float bandDamping = wave.band == OceanWaveBand.Ripple ? 1f : depthDamping;
-                accum.displacement *= bandDamping;
-                accum.dHdX *= bandDamping;
-                accum.dHdZ *= bandDamping;
-                accum.verticalVelocity *= bandDamping;
-                accum.horizontalVelocity *= bandDamping;
-
-                result.Add(accum);
+                AccumulateWave(ref result, wave, posXZ, waveTime, profile.directionJitterDegrees,
+                    seed, i, physicsPass, bandDamping, waveAmplitudeMul);
             }
 
             return result;
+        }
+
+        // Evaluates one wave and folds it (with depth damping + amplitude multiplier) into the accumulator.
+        private static void AccumulateWave(
+            ref OceanWaveMath.Accumulator result,
+            in OceanWaveDefinition wave,
+            Vector2 posXZ,
+            float waveTime,
+            float jitterDegrees,
+            uint seed,
+            int index,
+            bool physicsPass,
+            float bandDamping,
+            float amplitudeMul)
+        {
+            var accum = OceanWaveMath.EvaluateWave(wave, posXZ, waveTime, jitterDegrees, seed, index, physicsPass);
+
+            float totalMul = bandDamping * amplitudeMul;
+            accum.displacement *= totalMul;
+            accum.dHdX *= totalMul;
+            accum.dHdZ *= totalMul;
+            accum.verticalVelocity *= totalMul;
+            accum.horizontalVelocity *= totalMul;
+
+            result.Add(accum);
         }
 
 #if UNITY_EDITOR

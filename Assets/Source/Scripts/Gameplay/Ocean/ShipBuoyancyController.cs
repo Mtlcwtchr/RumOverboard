@@ -36,6 +36,7 @@ namespace RumOverboard.Gameplay.Ocean
     public class ShipBuoyancyController : MonoBehaviour
     {
         [SerializeField] private OceanWaveField oceanField;
+        [SerializeField] private OceanWindSystem windSystem;
         [SerializeField] private Rigidbody rb;
 
         [Header("Buoyancy points")]
@@ -57,6 +58,17 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private float angularDrag = 2.2f;
         [SerializeField] private float currentRelativeDrag = 2.5f;
 
+        [Header("Auto buoyancy from mass (realistic float)")]
+        [Tooltip("Scale buoyancy (and the linear damping + per-point force cap) to the Rigidbody mass, " +
+                 "so the hull floats at any mass instead of needing hand-tuned buoyancyForce (Archimedes).")]
+        [SerializeField] private bool autoBuoyancyFromMass = true;
+        [Tooltip("Fraction of a point's max submersion depth the hull settles to at rest.")]
+        [Range(0.1f, 0.9f)] [SerializeField] private float equilibriumSubmersion = 0.45f;
+        [Tooltip("Restoring headroom above just-floating. 1 = neutral, >1 bobs back up faster.")]
+        [Min(1f)] [SerializeField] private float buoyancyHeadroom = 1.5f;
+        [Tooltip("Mass the hand-tuned damping coefficients were authored for; damping scales up from this as mass grows.")]
+        [Min(1f)] [SerializeField] private float referenceMass = 1800f;
+
         [Header("Stability assist")]
         [SerializeField] private float rollStability = 28f;
         [SerializeField] private float pitchStability = 22f;
@@ -65,6 +77,13 @@ namespace RumOverboard.Gameplay.Ocean
         [Range(0f, 1f)] [SerializeField] private float surfaceNormalInfluence = 0.35f;
         [SerializeField] private float maxStabilityTorque = 60f;
         [SerializeField] private float inversionRecoveryTorque = 45f;
+
+        [Header("Wind coupling")]
+        [SerializeField] private float windHullForceCoefficient = 120f;
+        [SerializeField] private float windLongitudinalFactor = 0.35f;
+        [SerializeField] private float windLateralFactor = 1f;
+        [SerializeField] private float maxWindForce = 4500f;
+        [SerializeField] private Vector3 windApplicationOffset = new Vector3(0f, 3f, 0f);
 
         [Header("Safety")]
         [SerializeField] private float maxForcePerPoint = 9000f;
@@ -96,6 +115,7 @@ namespace RumOverboard.Gameplay.Ocean
         private Vector3[] _lastDampingForces;
         private float[] _lastSubmergence;
         private bool _warnedPointCount;
+        private bool _externallyDriven; // when true, an authority (NetworkShip) calls Step() from FixedUpdateNetwork
 
         private Vector3 _previousVelocity;
         private Vector3 _previousAngularVelocity;
@@ -107,12 +127,46 @@ namespace RumOverboard.Gameplay.Ocean
         private Vector3 _lastAverageSurfaceNormal = Vector3.up;
         private Vector3 _lastCenterOfMass;
         private int _lastSubmergedPoints;
+        private Vector3 _lastWindForce;
+        private Vector3 _lastWindApplicationPoint;
+        private Vector3 _lastWindVelocity;
+        private float _nextWindLookupTime;
 
         public event Action<ShipWaterContactEvent> WaterContact;
 
         public Vector3 LinearAcceleration => _linearAcceleration;
         public Vector3 AngularAcceleration => _angularAcceleration;
         public float LastImpactStrength => _lastImpactStrength;
+
+        public OceanWindSystem WindSystem
+        {
+            get => windSystem;
+            set => windSystem = value;
+        }
+
+        public float WindHullForceCoefficient
+        {
+            get => windHullForceCoefficient;
+            set => windHullForceCoefficient = Mathf.Max(0f, value);
+        }
+
+        public float WindLongitudinalFactor
+        {
+            get => windLongitudinalFactor;
+            set => windLongitudinalFactor = Mathf.Max(0f, value);
+        }
+
+        public float WindLateralFactor
+        {
+            get => windLateralFactor;
+            set => windLateralFactor = Mathf.Max(0f, value);
+        }
+
+        public float MaxWindForce
+        {
+            get => maxWindForce;
+            set => maxWindForce = Mathf.Max(0f, value);
+        }
 
         public float RollDegrees => NormalizeSigned(transform.eulerAngles.z);
         public float PitchDegrees => NormalizeSigned(transform.eulerAngles.x);
@@ -129,6 +183,8 @@ namespace RumOverboard.Gameplay.Ocean
                 rb = GetComponent<Rigidbody>();
             if (oceanField == null)
                 oceanField = FindAnyObjectByType<OceanWaveField>();
+            if (windSystem == null)
+                windSystem = FindAnyObjectByType<OceanWindSystem>();
 
             EnsureRuntimeBuffers();
         }
@@ -147,6 +203,10 @@ namespace RumOverboard.Gameplay.Ocean
             if (pitchDamping < 0f) pitchDamping = 0f;
             if (maxStabilityTorque < 0f) maxStabilityTorque = 0f;
             if (inversionRecoveryTorque < 0f) inversionRecoveryTorque = 0f;
+            if (windHullForceCoefficient < 0f) windHullForceCoefficient = 0f;
+            if (windLongitudinalFactor < 0f) windLongitudinalFactor = 0f;
+            if (windLateralFactor < 0f) windLateralFactor = 0f;
+            if (maxWindForce < 0f) maxWindForce = 0f;
             if (debugForceScale < 0f) debugForceScale = 0f;
             if (debugResultantScale < 0f) debugResultantScale = 0f;
             if (debugTorqueScale < 0f) debugTorqueScale = 0f;
@@ -154,9 +214,29 @@ namespace RumOverboard.Gameplay.Ocean
             if (maxForcePerPoint < 10f) maxForcePerPoint = 10f;
         }
 
+        /// <summary>When true, an authority (NetworkShip) steps us from FixedUpdateNetwork instead
+        /// of Unity's FixedUpdate — required for deterministic timing with the Fusion Physics addon.</summary>
+        public void SetExternallyDriven(bool value) => _externallyDriven = value;
+
         private void FixedUpdate()
         {
-            if (rb == null || oceanField == null || points == null || points.Length == 0)
+            // Skip Unity's own step when an authority drives us from the network tick (avoids
+            // double force application and keeps buoyancy inside Fusion's physics simulation).
+            if (_externallyDriven)
+                return;
+            if (oceanField == null)
+                return;
+
+            Step(Time.fixedDeltaTime, oceanField.OceanTimeNow);
+        }
+
+        /// <summary>
+        /// Applies one buoyancy / damping / wind step. Unity's FixedUpdate calls this for standalone
+        /// ships; NetworkShip calls it from FixedUpdateNetwork on the authority (Fusion addon timing).
+        /// </summary>
+        public void Step(float deltaTime, float simTime)
+        {
+            if (rb == null || points == null || points.Length == 0)
                 return;
 
             EnsureRuntimeBuffers();
@@ -167,14 +247,22 @@ namespace RumOverboard.Gameplay.Ocean
                 Debug.LogWarning($"[ShipBuoyancyController] '{name}' has only {points.Length} buoyancy points. Recommended: {minRecommendedPointCount}+.");
             }
 
-            float dt = Mathf.Max(0.0001f, Time.fixedDeltaTime);
-            float simTime = oceanField.OceanTimeNow;
+            float dt = Mathf.Max(0.0001f, deltaTime);
+
+            // Mass-aware scaling: buoyancy grows with weight (so the hull floats), and the linear
+            // damping + per-point cap scale with it so a heavy ship stays critically damped.
+            float effBuoyancy = ResolveBuoyancyForce();
+            float massScale = autoBuoyancyFromMass ? Mathf.Clamp(rb.mass / Mathf.Max(1f, referenceMass), 0.1f, 50f) : 1f;
+            float effMaxForcePerPoint = autoBuoyancyFromMass ? Mathf.Max(maxForcePerPoint, effBuoyancy * 3f) : maxForcePerPoint;
 
             _lastImpactStrength = 0f;
             _lastResultantForce = Vector3.zero;
             _lastResultantTorque = Vector3.zero;
             _lastSubmergedPoints = 0;
             _lastCenterOfMass = rb.worldCenterOfMass;
+            _lastWindForce = Vector3.zero;
+            _lastWindVelocity = Vector3.zero;
+            _lastWindApplicationPoint = _lastCenterOfMass;
 
             Vector3 averageNormalAccum = Vector3.zero;
             float averageNormalWeight = 0f;
@@ -222,7 +310,7 @@ namespace RumOverboard.Gameplay.Ocean
                 _lastSubmergence[i] = submergence;
 
                 Vector3 buoyDir = Vector3.Slerp(up, sample.surfaceNormal, 0.45f).normalized;
-                float buoyancyN = buoyancyForce * point.buoyancy * buoyancyMul * submergence;
+                float buoyancyN = effBuoyancy * point.buoyancy * buoyancyMul * submergence;
                 Vector3 buoyancyComponent = buoyDir * buoyancyN;
 
                 float pointDamping = Mathf.Max(0f, point.damping);
@@ -236,12 +324,13 @@ namespace RumOverboard.Gameplay.Ocean
                 dampingComponent += -lateral * (lateralDrag * dragMul * submergence);
                 dampingComponent += -longitudinal * (longitudinalDrag * dragMul * submergence);
                 dampingComponent += -relativeToCurrent * (currentRelativeDrag * dragMul * submergence * 0.25f);
+                dampingComponent *= massScale; // heavier hull → proportionally stronger damping
 
                 Vector3 force = buoyancyComponent + dampingComponent;
 
-                if (force.magnitude > maxForcePerPoint)
+                if (force.magnitude > effMaxForcePerPoint)
                 {
-                    float scale = maxForcePerPoint / Mathf.Max(0.0001f, force.magnitude);
+                    float scale = effMaxForcePerPoint / Mathf.Max(0.0001f, force.magnitude);
                     buoyancyComponent *= scale;
                     dampingComponent *= scale;
                     force *= scale;
@@ -288,6 +377,8 @@ namespace RumOverboard.Gameplay.Ocean
             rb.AddTorque(angularDampingTorque, ForceMode.Acceleration);
             _lastResultantTorque += angularDampingTorque;
 
+            ApplyWindForce(simTime);
+
             rb.linearVelocity = Vector3.ClampMagnitude(rb.linearVelocity, maxShipSpeed);
             rb.angularVelocity = Vector3.ClampMagnitude(rb.angularVelocity, maxAngularSpeed);
 
@@ -295,6 +386,61 @@ namespace RumOverboard.Gameplay.Ocean
             _angularAcceleration = (rb.angularVelocity - _previousAngularVelocity) / dt;
             _previousVelocity = rb.linearVelocity;
             _previousAngularVelocity = rb.angularVelocity;
+        }
+
+        private void ApplyWindForce(float simulationTime)
+        {
+            if (windSystem == null)
+            {
+                if (Time.time >= _nextWindLookupTime)
+                {
+                    _nextWindLookupTime = Time.time + 1f;
+                    windSystem = FindAnyObjectByType<OceanWindSystem>();
+                }
+                return;
+            }
+
+            Vector3 windVelocity = windSystem.EvaluateWind(_lastCenterOfMass, simulationTime);
+            _lastWindVelocity = windVelocity;
+            if (windVelocity.sqrMagnitude < 0.0001f)
+                return;
+
+            Vector3 relativeWind = windVelocity - rb.linearVelocity;
+            Vector3 longitudinal = Vector3.Project(relativeWind, transform.forward) * windLongitudinalFactor;
+            Vector3 lateral = Vector3.Project(relativeWind, transform.right) * windLateralFactor;
+
+            Vector3 windForce = (longitudinal + lateral) * windHullForceCoefficient;
+            if (maxWindForce > 0f)
+                windForce = Vector3.ClampMagnitude(windForce, maxWindForce);
+
+            if (windForce.sqrMagnitude < 0.0001f)
+                return;
+
+            Vector3 applicationPoint = _lastCenterOfMass + transform.TransformVector(windApplicationOffset);
+            rb.AddForceAtPosition(windForce, applicationPoint, ForceMode.Force);
+
+            _lastWindForce = windForce;
+            _lastWindApplicationPoint = applicationPoint;
+            _lastResultantForce += windForce;
+            _lastResultantTorque += Vector3.Cross(applicationPoint - _lastCenterOfMass, windForce);
+        }
+
+        // Per-unit-buoyancy coefficient that makes total buoyancy at the equilibrium submersion equal
+        // the hull weight × headroom — so the ship floats at any mass without re-tuning buoyancyForce.
+        private float ResolveBuoyancyForce()
+        {
+            if (!autoBuoyancyFromMass || rb == null || points == null || points.Length == 0)
+                return buoyancyForce;
+
+            float g = Mathf.Max(0.01f, Mathf.Abs(Physics.gravity.y));
+            float sumBuoy = 0f;
+            for (int i = 0; i < points.Length; i++)
+                sumBuoy += Mathf.Max(0f, points[i].buoyancy);
+            if (sumBuoy < 0.001f)
+                return buoyancyForce;
+
+            float s = Mathf.Clamp(equilibriumSubmersion, 0.1f, 0.9f);
+            return (rb.mass * g * Mathf.Max(1f, buoyancyHeadroom)) / (sumBuoy * s);
         }
 
         private Vector3 ComputeStabilityTorque(float dragMul, Vector3 averageSurfaceNormal)
@@ -448,6 +594,13 @@ namespace RumOverboard.Gameplay.Ocean
 
                 if (debugDrawNormals)
                     DrawArrow(com, _lastAverageSurfaceNormal * debugNormalScale * 1.2f, new Color(0.3f, 0.8f, 1f, 0.9f));
+
+                if (_lastWindForce.sqrMagnitude > 0.0001f)
+                {
+                    Vector3 windOrigin = _lastWindApplicationPoint;
+                    DrawArrow(windOrigin, _lastWindForce * debugForceScale, new Color(1f, 0.8f, 0.2f, 0.95f));
+                    DrawArrow(com, _lastWindVelocity * 0.2f, new Color(1f, 0.95f, 0.35f, 0.9f));
+                }
 
                 if (debugLabels)
                 {

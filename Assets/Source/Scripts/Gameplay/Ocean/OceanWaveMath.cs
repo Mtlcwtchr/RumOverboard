@@ -71,6 +71,14 @@ namespace RumOverboard.Gameplay.Ocean
             return new Vector3(-dHdX, 1f, -dHdZ).normalized;
         }
 
+        /// <summary>
+        /// Deterministic per-wave directional jitter, exposed so the GPU path (OceanSurfaceRenderer)
+        /// can bake the SAME jittered direction into its shader uniforms and keep fragment
+        /// normals/foam aligned with the CPU surface.
+        /// </summary>
+        public static Vector2 JitteredDirection(Vector2 dir, float jitterDeg, uint seed, int index)
+            => ApplyDirectionalJitter(dir, jitterDeg, seed, index);
+
         private static Vector2 ApplyDirectionalJitter(Vector2 dir, float jitterDeg, uint seed, int index)
         {
             if (jitterDeg <= 0.001f)

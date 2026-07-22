@@ -121,7 +121,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1127486653375584093
 Transform:
   m_ObjectHideFlags: 0
@@ -308,13 +308,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1130697030387080923}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.0335658, y: 5.416148, z: 13.496916}
+  m_LocalRotation: {x: 0, y: 0, z: -0.10157711, w: 0.9948277}
+  m_LocalPosition: {x: -3.65, y: 4.17, z: 13.64}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 7908305530608139774}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: -11.66}
 --- !u!65 &9157657116822989023
 BoxCollider:
   m_ObjectHideFlags: 0
@@ -334,8 +334,8 @@ BoxCollider:
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
-  m_Size: {x: 2.2, y: 9.5, z: 1.4843006}
-  m_Center: {x: 0, y: 0, z: 0}
+  m_Size: {x: 0.69721323, y: 13.13772, z: 1.4843006}
+  m_Center: {x: -0.2775074, y: 1.8187743, z: 0}
 --- !u!114 &7622954475982213886
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -485,6 +485,59 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Climbable
   ClimbAxisLocal: {x: 1, y: 0, z: 0}
+--- !u!1 &1692923049162085507
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 75193794841007185}
+  - component: {fileID: 4760685391636335214}
+  m_Layer: 0
+  m_Name: Interactive_SailCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &75193794841007185
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1692923049162085507}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5269473504053053808}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &4760685391636335214
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1692923049162085507}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 10.764671, y: 8.226938, z: 1.9636563}
+  m_Center: {x: 0.00000023841858, y: -0.07493448, z: 0.2015168}
 --- !u!1 &1760591265745956912
 GameObject:
   m_ObjectHideFlags: 0
@@ -621,7 +674,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &7908305530608139774
 Transform:
   m_ObjectHideFlags: 0
@@ -666,7 +719,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &6229387584591908368
 Transform:
   m_ObjectHideFlags: 0
@@ -1127,6 +1180,59 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Climbable
   ClimbAxisLocal: {x: 0, y: 1, z: 0}
+--- !u!1 &3427733226781992394
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4588157911777716142}
+  - component: {fileID: 7588934738116341178}
+  m_Layer: 0
+  m_Name: Interactive_SailCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4588157911777716142
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3427733226781992394}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 7928900251377210011}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &7588934738116341178
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 3427733226781992394}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 13.318514, y: 10.239737, z: 2.3507757}
+  m_Center: {x: 0.0000009536743, y: 0.00000023841858, z: -0.011195779}
 --- !u!1 &3628267374237370834
 GameObject:
   m_ObjectHideFlags: 0
@@ -1327,7 +1433,7 @@ Transform:
   m_GameObject: {fileID: 3946589834186262939}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 1.0335664, y: 5.695408, z: -10.913827}
+  m_LocalPosition: {x: 1.0335664, y: 5.695408, z: -14.99}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1708,7 +1814,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &8501964421904424636
 Transform:
   m_ObjectHideFlags: 0
@@ -2005,6 +2111,61 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Source.Scripts.Gameplay.ShipInteractionZone
   zone: 7
   prompt: Use Oars
+--- !u!1 &5067698743613992204
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3019956498535530189}
+  - component: {fileID: 4236793484835221794}
+  m_Layer: 0
+  m_Name: Interactive_MastCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3019956498535530189
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5067698743613992204}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5875375001701174547}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!136 &4236793484835221794
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5067698743613992204}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.32
+  m_Height: 28.396751
+  m_Direction: 1
+  m_Center: {x: 0, y: 0, z: 0}
 --- !u!1 &5133907091146438264
 GameObject:
   m_ObjectHideFlags: 0
@@ -2127,6 +2288,61 @@ BoxCollider:
   serializedVersion: 3
   m_Size: {x: 0.28, y: 1.4855957, z: 14.192446}
   m_Center: {x: 0, y: 0, z: 0}
+--- !u!1 &5326989678675535129
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1881796672814790083}
+  - component: {fileID: 3263617315536126581}
+  m_Layer: 0
+  m_Name: Interactive_MastCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1881796672814790083
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5326989678675535129}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1228776394350089486}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!136 &3263617315536126581
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5326989678675535129}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.32
+  m_Height: 30.333328
+  m_Direction: 1
+  m_Center: {x: 0, y: -0.0000009536743, z: 0}
 --- !u!1 &5404404981579656966
 GameObject:
   m_ObjectHideFlags: 0
@@ -2369,6 +2585,59 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Source.Scripts.Gameplay.ShipInteractionZone
   zone: 6
   prompt: Climb To Nest
+--- !u!1 &6527942958772517533
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3070641237683687073}
+  - component: {fileID: 2986771768623911864}
+  m_Layer: 0
+  m_Name: Interactive_SailCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3070641237683687073
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6527942958772517533}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 5560884663492235062}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &2986771768623911864
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 6527942958772517533}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 1.9109957, y: 8.858601, z: 15.642927}
+  m_Center: {x: 0.0229716, y: 0.00000023841858, z: -0.0000011920929}
 --- !u!1 &6738513689705826780
 GameObject:
   m_ObjectHideFlags: 0
@@ -2504,7 +2773,9 @@ GameObject:
   - component: {fileID: -4244384541261107503}
   - component: {fileID: 6772426389475440551}
   - component: {fileID: 4092693902750862539}
+  - component: {fileID: 551234567890123456}
   - component: {fileID: 333777000111222334}
+  - component: {fileID: 340206613230340771}
   m_Layer: 0
   m_Name: NetworkShip
   m_TagString: Untagged
@@ -2540,10 +2811,10 @@ Rigidbody:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 7031034177633382750}
   serializedVersion: 5
-  m_Mass: 1200
-  m_LinearDamping: 0.02
-  m_AngularDamping: 0.25
-  m_CenterOfMass: {x: 1.25, y: -1, z: 0}
+  m_Mass: 12000
+  m_LinearDamping: 0.05
+  m_AngularDamping: 0.35
+  m_CenterOfMass: {x: 0, y: -0.8, z: 0}
   m_InertiaTensor: {x: 1, y: 1, z: 1}
   m_InertiaRotation: {x: 0, y: 0, z: 0, w: 1}
   m_IncludeLayers:
@@ -2555,8 +2826,8 @@ Rigidbody:
   m_ImplicitCom: 0
   m_ImplicitTensor: 1
   m_UseGravity: 1
-  m_IsKinematic: 1
-  m_Interpolate: 1
+  m_IsKinematic: 0
+  m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
 --- !u!114 &333777000111222333
@@ -2577,6 +2848,7 @@ MonoBehaviour:
   NestedObjects: []
   NetworkedBehaviours:
   - {fileID: 333777000111222334}
+  - {fileID: 340206613230340771}
   ForceRemoteRenderTimeframe: 0
 --- !u!114 &-4244384541261107503
 MonoBehaviour:
@@ -2591,6 +2863,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.ShipBuoyancyController
   oceanField: {fileID: 0}
+  windSystem: {fileID: 0}
   rb: {fileID: 5968957751921457046}
   points:
   - name: BowPort
@@ -2641,6 +2914,10 @@ MonoBehaviour:
   lateralDrag: 14
   angularDrag: 3.8
   currentRelativeDrag: 2.5
+  autoBuoyancyFromMass: 1
+  equilibriumSubmersion: 0.45
+  buoyancyHeadroom: 1.5
+  referenceMass: 1800
   rollStability: 28
   pitchStability: 22
   rollDamping: 10
@@ -2648,6 +2925,11 @@ MonoBehaviour:
   surfaceNormalInfluence: 0.35
   maxStabilityTorque: 60
   inversionRecoveryTorque: 45
+  windHullForceCoefficient: 120
+  windLongitudinalFactor: 0.35
+  windLateralFactor: 1
+  maxWindForce: 4500
+  windApplicationOffset: {x: 0, y: 3, z: 0}
   maxForcePerPoint: 9000
   maxShipSpeed: 22
   maxAngularSpeed: 2.6
@@ -2675,8 +2957,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5c93213b7aaf0424dbba4a8db726c200, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.ShipDeckMotionProvider
-  buoyancy: {fileID: 0}
-  shipBody: {fileID: 0}
+  buoyancy: {fileID: -4244384541261107503}
+  shipBody: {fileID: 5968957751921457046}
 --- !u!114 &4092693902750862539
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2689,11 +2971,195 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 852dc986a0b4449feb0b935a95d253cc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.ShipWaterFxController
-  buoyancy: {fileID: 0}
+  buoyancy: {fileID: -4244384541261107503}
   splashPrefab: {fileID: 0}
   poolSize: 12
   impactThreshold: 3
   minInterval: 0.08
+--- !u!114 &551234567890123456
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7031034177633382750}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fff2ddf3430ff4ec4be14aa87599a912, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.ShipSailSystem
+  shipBody: {fileID: 5968957751921457046}
+  windSystem: {fileID: 0}
+  masts:
+  - name: StylShip_MastFront
+    baseLocal: {x: 1.0377563, y: -8.268829, z: 14.2446575}
+    topLocal: {x: 1.0377563, y: 20.127998, z: 14.2446575}
+    radius: 0.14401785
+    yieldStrength: 40000000
+    elasticModulus: 1.2e+10
+  - name: StylShip_MastMid
+    baseLocal: {x: 1.0335662, y: -8.299286, z: 3.8659227}
+    topLocal: {x: 1.0335662, y: 28.092625, z: 3.8659227}
+    radius: 0.14402299
+    yieldStrength: 40000000
+    elasticModulus: 1.2e+10
+  - name: StylShip_MastBack
+    baseLocal: {x: 1.0740982, y: -8.257927, z: -14.954211}
+    topLocal: {x: 1.0740982, y: 22.075481, z: -14.954211}
+    radius: 0.14401911
+    yieldStrength: 40000000
+    elasticModulus: 1.2e+10
+  syncRigFromVisualSails: 0
+  syncMastsFromVisual: 1
+  rebuildSailsFromVisual: 1
+  editorShowAttachmentHandles: 1
+  editorShowPointLabels: 1
+  editorDrawAttachmentPointsGizmo: 1
+  editorDrawMeshPreviewGizmo: 1
+  editorPointHandleSize: 0.08
+  airDensity: 1.225
+  sailForceScale: 0.35
+  maxForcePerSail: 1200
+  liftFactor: 0.8
+  dragFactor: 0.9
+  sideForceFactor: 0.45
+  reverseDriveFactor: 0.05
+  verticalForceFactor: 0.05
+  blockReverseDriveFromHeadwind: 1
+  timeStep: 0.016
+  substeps: 2
+  createVisuals: 1
+  simulateVisualsOnProxies: 1
+  sailMaterial: {fileID: 0}
+  debugDrawForces: 1
+  debugDrawMastStress: 1
+  debugDrawCloth: 1
+  debugForceScale: 0.001
+  sails:
+  - name: StylShip_SailFront
+    enabled: 1
+    visualSailName: StylShip_SailFront
+    pinBoundaryToRig: 1
+    triangularHint: 0
+    mastIndex: 0
+    mastAttachHeight: 0.547066
+    ropeAttachmentPoints: 10
+    topLeftLocal: {x: -4.344578, y: 11.379578, z: 14.602772}
+    topRightLocal: {x: 6.420093, y: 11.379578, z: 14.602773}
+    bottomLeftLocal: {x: -4.344578, y: 3.152639, z: 14.478015}
+    bottomRightLocal: {x: 6.4200935, y: 3.152639, z: 14.478015}
+    gridWidth: 16
+    gridHeight: 16
+    baseArea: 88.57047
+    hoist01: 1
+    extension01: 1
+    sheetAngleDeg: 0
+    damage01: 0
+    particleMass: 0.32
+    structuralStiffness: 520
+    shearStiffness: 218.4
+    bendStiffness: 41.6
+    damping: 6.4
+    gravityScale: 0.6
+    windDragCoeff: 1.28
+    windLiftCoeff: 0.42
+    windFlutterStrength: 0.45
+    windFlutterFrequency: 3.5
+    solverIterations: 4
+    clothColor: {r: 0.95, g: 0.92, b: 0.85, a: 0.92}
+  - name: StylShip_SailMid1
+    enabled: 1
+    visualSailName: StylShip_SailMid1
+    pinBoundaryToRig: 1
+    triangularHint: 0
+    mastIndex: 1
+    mastAttachHeight: 0.4680322
+    ropeAttachmentPoints: 10
+    topLeftLocal: {x: -5.6154795, y: 13.8531685, z: 4.2575636}
+    topRightLocal: {x: 7.7030325, y: 13.8531685, z: 4.257564}
+    bottomLeftLocal: {x: -5.6154795, y: 3.613432, z: 4.2575607}
+    bottomRightLocal: {x: 7.7030325, y: 3.613432, z: 4.2575617}
+    gridWidth: 16
+    gridHeight: 16
+    baseArea: 136.37805
+    hoist01: 1
+    extension01: 1
+    sheetAngleDeg: 0
+    damage01: 0
+    particleMass: 0.32
+    structuralStiffness: 520
+    shearStiffness: 218.4
+    bendStiffness: 41.6
+    damping: 6.4
+    gravityScale: 0.6
+    windDragCoeff: 1.28
+    windLiftCoeff: 0.42
+    windFlutterStrength: 0.45
+    windFlutterFrequency: 3.5
+    solverIterations: 4
+    clothColor: {r: 0.95, g: 0.92, b: 0.85, a: 0.92}
+  - name: StylShip_SailMid2
+    enabled: 1
+    visualSailName: StylShip_SailMid2
+    pinBoundaryToRig: 1
+    triangularHint: 0
+    mastIndex: 1
+    mastAttachHeight: 0.81613296
+    ropeAttachmentPoints: 10
+    topLeftLocal: {x: -1.9622426, y: 23.933386, z: 4.115701}
+    topRightLocal: {x: 4.0377574, y: 23.933386, z: 4.115701}
+    bottomLeftLocal: {x: -1.9622426, y: 18.869314, z: 4.115846}
+    bottomRightLocal: {x: 4.0377574, y: 18.869314, z: 4.115846}
+    gridWidth: 16
+    gridHeight: 15
+    baseArea: 30.38443
+    hoist01: 1
+    extension01: 1
+    sheetAngleDeg: 0
+    damage01: 0
+    particleMass: 0.32
+    structuralStiffness: 520
+    shearStiffness: 218.4
+    bendStiffness: 41.6
+    damping: 6.4
+    gravityScale: 0.6
+    windDragCoeff: 1.28
+    windLiftCoeff: 0.42
+    windFlutterStrength: 0.45
+    windFlutterFrequency: 3.5
+    solverIterations: 4
+    clothColor: {r: 0.95, g: 0.92, b: 0.85, a: 0.92}
+  - name: StylShip_SailBack
+    enabled: 1
+    visualSailName: StylShip_SailBack
+    pinBoundaryToRig: 1
+    triangularHint: 1
+    mastIndex: 2
+    mastAttachHeight: 0.6183234
+    ropeAttachmentPoints: 10
+    topLeftLocal: {x: 1.7378912, y: 14.721191, z: -18.890574}
+    topRightLocal: {x: 1.7378912, y: 14.721191, z: -17.951998}
+    bottomLeftLocal: {x: 2.2944503, y: 6.686737, z: -18.713085}
+    bottomRightLocal: {x: 0.3948419, y: 5.862591, z: -3.0701585}
+    gridWidth: 16
+    gridHeight: 16
+    baseArea: 67.52507
+    hoist01: 1
+    extension01: 1
+    sheetAngleDeg: 0
+    damage01: 0
+    particleMass: 0.32
+    structuralStiffness: 520
+    shearStiffness: 218.4
+    bendStiffness: 41.6
+    damping: 6.4
+    gravityScale: 0.6
+    windDragCoeff: 1.1
+    windLiftCoeff: 0.34
+    windFlutterStrength: 0.34
+    windFlutterFrequency: 3.5
+    solverIterations: 4
+    clothColor: {r: 0.95, g: 0.92, b: 0.85, a: 0.92}
 --- !u!114 &333777000111222334
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2708,11 +3174,35 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Networking.NetworkShip
   buoyancy: {fileID: -4244384541261107503}
   waveField: {fileID: 0}
-  disableBuoyancyOnProxies: 1
-  proxySmoothing: 12
+  sailSystem: {fileID: 551234567890123456}
   disableNonConvexVisualMeshColliders: 1
   oceanTimeCorrectionThreshold: 0.1
   oceanTimeCorrectionGain: 0.1
+  _LastImpactStrength: 0
+  _OceanTime: 0
+--- !u!114 &340206613230340771
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7031034177633382750}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a591d221a634417e9827eb58e17de84, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Fusion.Addons.Physics::Fusion.Addons.Physics.NetworkRigidbody3D
+  _stateAuthorityChangeErrorCorrectionDelta: 0
+  SyncScale: 0
+  SyncParent: 1
+  _interpolationTarget: {fileID: 0}
+  UsePreciseRotation: 0
+  UseRenderSleepThresholds: 1
+  RenderThresholds:
+    UseEnergy: 1
+    Position: 0.01
+    Rotation: 0.01
+    Scale: 0.01
 --- !u!1 &7276704475741772154
 GameObject:
   m_ObjectHideFlags: 0
@@ -2780,6 +3270,59 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Climbable
   ClimbAxisLocal: {x: 0, y: 1, z: 0}
+--- !u!1 &7327653210228331274
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 838804020215962940}
+  - component: {fileID: 42426273762875427}
+  m_Layer: 0
+  m_Name: Interactive_SailCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &838804020215962940
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7327653210228331274}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 4295231883436683140}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!65 &42426273762875427
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 7327653210228331274}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 6, y: 5.0640726, z: 1.0759239}
+  m_Center: {x: 0, y: -0.03591752, z: 0.10030629}
 --- !u!1 &7392579010132040563
 GameObject:
   m_ObjectHideFlags: 0
@@ -3368,6 +3911,61 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Climbable
   ClimbAxisLocal: {x: 0, y: 1, z: 0}
+--- !u!1 &8867933420191306255
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4624838041740022644}
+  - component: {fileID: 9156057997691141883}
+  m_Layer: 0
+  m_Name: Interactive_MastCollider
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &4624838041740022644
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8867933420191306255}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2928747040583401143}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!136 &9156057997691141883
+CapsuleCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8867933420191306255}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 2
+  m_Radius: 0.32
+  m_Height: 36.39181
+  m_Direction: 1
+  m_Center: {x: 0, y: 6.4904556, z: 0}
 --- !u!1 &9101435270086258354
 GameObject:
   m_ObjectHideFlags: 0
@@ -3497,36 +4095,56 @@ PrefabInstance:
     serializedVersion: 3
     m_TransformParent: {fileID: 5871707528431180879}
     m_Modifications:
-    - target: {fileID: 148279740158485211, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
-      propertyPath: m_Enabled
-      value: 0
-      objectReference: {fileID: 0}
     - target: {fileID: 217175002229668204, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 302610079744256335, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+    - target: {fileID: 1202353666874911036, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 2957518236658499705, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_Convex
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3302929868412809936, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 578898375635083907, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
-      propertyPath: m_Enabled
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 655528518882420636, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
-      propertyPath: m_Enabled
-      value: 0
-      objectReference: {fileID: 0}
-    - target: {fileID: 1181090779087709155, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
-      propertyPath: m_Enabled
+    - target: {fileID: 3878862094043865695, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 4535976693626251950, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_Enabled
       value: 0
       objectReference: {fileID: 0}
-    - target: {fileID: 5469190406923961019, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
-      propertyPath: m_Enabled
+    - target: {fileID: 4765330179563194246, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4965822925440225406, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_Convex
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5169355633208470796, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 5169355633208470796, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5169355633208470796, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5169355633208470796, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5169355633208470796, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5698490091141845370, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
@@ -3534,7 +4152,15 @@ PrefabInstance:
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 6338430877684533578, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_Convex
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 6338430877684533578, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
       propertyPath: m_Enabled
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7946011655033106591, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8515472688152868816, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
@@ -3583,11 +4209,67 @@ PrefabInstance:
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
-    m_AddedGameObjects: []
+    m_AddedGameObjects:
+    - targetCorrespondingSourceObject: {fileID: 778994446892784858, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1881796672814790083}
+    - targetCorrespondingSourceObject: {fileID: 5353496431435924679, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 3019956498535530189}
+    - targetCorrespondingSourceObject: {fileID: 3703657803352094563, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4624838041740022644}
+    - targetCorrespondingSourceObject: {fileID: 6264170561468614370, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 3070641237683687073}
+    - targetCorrespondingSourceObject: {fileID: 5972363505502699684, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 75193794841007185}
+    - targetCorrespondingSourceObject: {fileID: 8488135244037004111, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 4588157911777716142}
+    - targetCorrespondingSourceObject: {fileID: 2330978294464800336, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 838804020215962940}
     m_AddedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+--- !u!4 &1228776394350089486 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 778994446892784858, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &2928747040583401143 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3703657803352094563, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &4295231883436683140 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 2330978294464800336, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &5269473504053053808 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 5972363505502699684, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &5560884663492235062 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 6264170561468614370, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &5875375001701174547 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 5353496431435924679, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
 --- !u!4 &7396088349003392190 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 9036149285931199850, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
+  m_PrefabInstance: {fileID: 2000432543569316308}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &7928900251377210011 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 8488135244037004111, guid: a1dcd447bfbb3bc45821f8b436c031d2, type: 3}
   m_PrefabInstance: {fileID: 2000432543569316308}
   m_PrefabAsset: {fileID: 0}
