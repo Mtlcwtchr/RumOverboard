@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 22af38126ec4b46cb9e5f6b38b210229, type: 3}
+  m_Name: OceanSimulationConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanSimulationConfig
+  sharedSeed: 1337
+  seaLevel: 0
+  transitionSeconds: 8
+  defaultProfile: {fileID: 11400000, guid: ebe25a2fe0bf047bab3de011e58ae917, type: 2}
+  availableProfiles:
+  - {fileID: 11400000, guid: ebe25a2fe0bf047bab3de011e58ae917, type: 2}
+  - {fileID: 11400000, guid: 5ce037e17ab914cf29e1acef20915c1e, type: 2}
+  - {fileID: 11400000, guid: 043d78fc902a146b18a26516b20e4ea0, type: 2}
+  low: {fileID: 11400000, guid: 00ff81b674f6d4d478dddf79fe169f81, type: 2}
+  medium: {fileID: 11400000, guid: 7001880f188784fb28aa27478b5b67f6, type: 2}
+  high: {fileID: 11400000, guid: b8c4454f8c97441f4a39fd0d36b5492f, type: 2}
+  depthProfile: {fileID: 11400000, guid: 7ce99bf33534f469798b63e8d532920a, type: 2}

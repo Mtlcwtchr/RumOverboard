@@ -1,0 +1,75 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 058ecb097fea94b1e859c4685015493c, type: 3}
+  m_Name: SeaState_Moderate
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanSeaStateProfile
+  waves:
+  - direction: {x: 1, y: 0.1}
+    amplitude: 0.75
+    wavelength: 34
+    speed: 3.5
+    frequency: 1
+    steepness: 0.48
+    phase: 0
+    physicsWeight: 1
+    visualWeight: 1
+    band: 0
+  - direction: {x: 0.3, y: 1}
+    amplitude: 0.5
+    wavelength: 22
+    speed: 3
+    frequency: 1
+    steepness: 0.36
+    phase: 1.1
+    physicsWeight: 1
+    visualWeight: 1
+    band: 0
+  - direction: {x: 1, y: 0.55}
+    amplitude: 0.24
+    wavelength: 11
+    speed: 2.3
+    frequency: 1
+    steepness: 0.3
+    phase: 0.2
+    physicsWeight: 1
+    visualWeight: 1
+    band: 1
+  - direction: {x: -0.6, y: 1}
+    amplitude: 0.14
+    wavelength: 7.5
+    speed: 2.6
+    frequency: 1
+    steepness: 0.26
+    phase: 2.2
+    physicsWeight: 1
+    visualWeight: 1
+    band: 1
+  - direction: {x: 0.8, y: 0.4}
+    amplitude: 0.08
+    wavelength: 5.5
+    speed: 1.9
+    frequency: 1
+    steepness: 0.2
+    phase: 0.8
+    physicsWeight: 0
+    visualWeight: 1
+    band: 2
+  directionJitterDegrees: 4
+  globalCurrentDirection: {x: 1, y: 0.35}
+  globalCurrentSpeed: 0.35
+  foamIntensity: 0.4
+  crestFoamThreshold: 0.66
+  shallowColorBoost: 0.5
+  buoyancyMultiplier: 1
+  dragMultiplier: 1
+  waveImpactMultiplier: 1
+  splashFrequencyScale: 1

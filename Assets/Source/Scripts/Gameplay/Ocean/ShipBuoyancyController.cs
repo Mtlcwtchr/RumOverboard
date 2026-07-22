@@ -1,0 +1,490 @@
+using System;
+using UnityEngine;
+
+namespace RumOverboard.Gameplay.Ocean
+{
+    public enum ShipWaterContactType
+    {
+        Enter,
+        Exit,
+        Impact,
+    }
+
+    public struct ShipWaterContactEvent
+    {
+        public ShipWaterContactType contactType;
+        public int pointIndex;
+        public Vector3 worldPoint;
+        public Vector3 surfaceNormal;
+        public Vector3 relativeVelocity;
+        public float impactStrength;
+    }
+
+    [Serializable]
+    public struct ShipBuoyancyPoint
+    {
+        public string name;
+        public Vector3 localPosition;
+        [Min(0.02f)] public float radius;
+        [Min(0.05f)] public float maxSubmersionDepth;
+        [Min(0f)] public float buoyancy;
+        [Range(0f, 5f)] public float damping;
+        public bool emitContacts;
+    }
+
+    [RequireComponent(typeof(Rigidbody))]
+    public class ShipBuoyancyController : MonoBehaviour
+    {
+        [SerializeField] private OceanWaveField oceanField;
+        [SerializeField] private Rigidbody rb;
+
+        [Header("Buoyancy points")]
+        [SerializeField] private ShipBuoyancyPoint[] points =
+        {
+            new ShipBuoyancyPoint { name = "BowPort",   localPosition = new Vector3(-1.8f, 0f, 4.2f), radius = 0.35f, maxSubmersionDepth = 1.1f, buoyancy = 1f, damping = 1f, emitContacts = true },
+            new ShipBuoyancyPoint { name = "BowStar",   localPosition = new Vector3( 1.8f, 0f, 4.2f), radius = 0.35f, maxSubmersionDepth = 1.1f, buoyancy = 1f, damping = 1f, emitContacts = true },
+            new ShipBuoyancyPoint { name = "MidPort",   localPosition = new Vector3(-2.0f, 0f, 0f),  radius = 0.35f, maxSubmersionDepth = 1.2f, buoyancy = 1f, damping = 1f, emitContacts = false },
+            new ShipBuoyancyPoint { name = "MidStar",   localPosition = new Vector3( 2.0f, 0f, 0f),  radius = 0.35f, maxSubmersionDepth = 1.2f, buoyancy = 1f, damping = 1f, emitContacts = false },
+            new ShipBuoyancyPoint { name = "SternPort", localPosition = new Vector3(-1.7f, 0f, -4.3f), radius = 0.35f, maxSubmersionDepth = 1.1f, buoyancy = 1f, damping = 1f, emitContacts = true },
+            new ShipBuoyancyPoint { name = "SternStar", localPosition = new Vector3( 1.7f, 0f, -4.3f), radius = 0.35f, maxSubmersionDepth = 1.1f, buoyancy = 1f, damping = 1f, emitContacts = true },
+        };
+
+        [Header("Force coefficients")]
+        [SerializeField] private float buoyancyForce = 30f;
+        [SerializeField] private float verticalDamping = 10f;
+        [SerializeField] private float longitudinalDrag = 2f;
+        [SerializeField] private float lateralDrag = 12f;
+        [SerializeField] private float angularDrag = 2.2f;
+        [SerializeField] private float currentRelativeDrag = 2.5f;
+
+        [Header("Stability assist")]
+        [SerializeField] private float rollStability = 28f;
+        [SerializeField] private float pitchStability = 22f;
+        [SerializeField] private float rollDamping = 10f;
+        [SerializeField] private float pitchDamping = 8f;
+        [Range(0f, 1f)] [SerializeField] private float surfaceNormalInfluence = 0.35f;
+        [SerializeField] private float maxStabilityTorque = 60f;
+        [SerializeField] private float inversionRecoveryTorque = 45f;
+
+        [Header("Safety")]
+        [SerializeField] private float maxForcePerPoint = 9000f;
+        [SerializeField] private float maxShipSpeed = 22f;
+        [SerializeField] private float maxAngularSpeed = 2.6f;
+        [SerializeField] private int minRecommendedPointCount = 4;
+
+        [Header("Contact events")]
+        [SerializeField] private float impactSpeedThreshold = 2.8f;
+        [SerializeField] private float contactCooldown = 0.12f;
+
+        [Header("Debug")]
+        [SerializeField] private bool debugDrawForces;
+        [SerializeField] private bool debugDrawResultants = true;
+        [SerializeField] private bool debugDrawNormals = true;
+        [SerializeField] private bool debugDrawAlways;
+        [SerializeField] private bool debugLabels;
+        [SerializeField] private float debugForceScale = 0.001f;
+        [SerializeField] private float debugResultantScale = 0.0008f;
+        [SerializeField] private float debugTorqueScale = 0.08f;
+        [SerializeField] private float debugNormalScale = 2f;
+
+        private bool[] _wasSubmerged;
+        private float[] _cooldowns;
+        private Vector3[] _lastForces;
+        private Vector3[] _lastWorldPoints;
+        private Vector3[] _lastSurfaceNormals;
+        private Vector3[] _lastBuoyancyForces;
+        private Vector3[] _lastDampingForces;
+        private float[] _lastSubmergence;
+        private bool _warnedPointCount;
+
+        private Vector3 _previousVelocity;
+        private Vector3 _previousAngularVelocity;
+        private Vector3 _linearAcceleration;
+        private Vector3 _angularAcceleration;
+        private float _lastImpactStrength;
+        private Vector3 _lastResultantForce;
+        private Vector3 _lastResultantTorque;
+        private Vector3 _lastAverageSurfaceNormal = Vector3.up;
+        private Vector3 _lastCenterOfMass;
+        private int _lastSubmergedPoints;
+
+        public event Action<ShipWaterContactEvent> WaterContact;
+
+        public Vector3 LinearAcceleration => _linearAcceleration;
+        public Vector3 AngularAcceleration => _angularAcceleration;
+        public float LastImpactStrength => _lastImpactStrength;
+
+        public float RollDegrees => NormalizeSigned(transform.eulerAngles.z);
+        public float PitchDegrees => NormalizeSigned(transform.eulerAngles.x);
+
+        public void ConfigureReferences(OceanWaveField waveField, Rigidbody body)
+        {
+            oceanField = waveField;
+            rb = body;
+        }
+
+        private void Awake()
+        {
+            if (rb == null)
+                rb = GetComponent<Rigidbody>();
+            if (oceanField == null)
+                oceanField = FindAnyObjectByType<OceanWaveField>();
+
+            EnsureRuntimeBuffers();
+        }
+
+        private void OnValidate()
+        {
+            if (buoyancyForce < 0f) buoyancyForce = 0f;
+            if (verticalDamping < 0f) verticalDamping = 0f;
+            if (longitudinalDrag < 0f) longitudinalDrag = 0f;
+            if (lateralDrag < 0f) lateralDrag = 0f;
+            if (angularDrag < 0f) angularDrag = 0f;
+            if (currentRelativeDrag < 0f) currentRelativeDrag = 0f;
+            if (rollStability < 0f) rollStability = 0f;
+            if (pitchStability < 0f) pitchStability = 0f;
+            if (rollDamping < 0f) rollDamping = 0f;
+            if (pitchDamping < 0f) pitchDamping = 0f;
+            if (maxStabilityTorque < 0f) maxStabilityTorque = 0f;
+            if (inversionRecoveryTorque < 0f) inversionRecoveryTorque = 0f;
+            if (debugForceScale < 0f) debugForceScale = 0f;
+            if (debugResultantScale < 0f) debugResultantScale = 0f;
+            if (debugTorqueScale < 0f) debugTorqueScale = 0f;
+            if (debugNormalScale < 0f) debugNormalScale = 0f;
+            if (maxForcePerPoint < 10f) maxForcePerPoint = 10f;
+        }
+
+        private void FixedUpdate()
+        {
+            if (rb == null || oceanField == null || points == null || points.Length == 0)
+                return;
+
+            EnsureRuntimeBuffers();
+
+            if (!_warnedPointCount && points.Length < minRecommendedPointCount)
+            {
+                _warnedPointCount = true;
+                Debug.LogWarning($"[ShipBuoyancyController] '{name}' has only {points.Length} buoyancy points. Recommended: {minRecommendedPointCount}+.");
+            }
+
+            float dt = Mathf.Max(0.0001f, Time.fixedDeltaTime);
+            float simTime = oceanField.OceanTimeNow;
+
+            _lastImpactStrength = 0f;
+            _lastResultantForce = Vector3.zero;
+            _lastResultantTorque = Vector3.zero;
+            _lastSubmergedPoints = 0;
+            _lastCenterOfMass = rb.worldCenterOfMass;
+
+            Vector3 averageNormalAccum = Vector3.zero;
+            float averageNormalWeight = 0f;
+
+            OceanSeaStateProfile sea = oceanField.ActiveProfile;
+            float buoyancyMul = sea != null ? sea.buoyancyMultiplier : 1f;
+            float dragMul = sea != null ? sea.dragMultiplier : 1f;
+            float impactMul = sea != null ? sea.waveImpactMultiplier : 1f;
+
+            Vector3 up = Vector3.up;
+            Vector3 fwd = transform.forward;
+            Vector3 right = transform.right;
+
+            for (int i = 0; i < points.Length; i++)
+            {
+                ShipBuoyancyPoint point = points[i];
+                Vector3 worldPoint = transform.TransformPoint(point.localPosition);
+                OceanSample sample = oceanField.Sample(worldPoint, simTime);
+
+                _lastWorldPoints[i] = worldPoint;
+                _lastSurfaceNormals[i] = sample.surfaceNormal;
+
+                float depth = sample.surfaceHeight - worldPoint.y + Mathf.Max(0.01f, point.radius);
+                bool submerged = depth > 0f;
+
+                float cooldown = _cooldowns[i] - dt;
+                _cooldowns[i] = cooldown > 0f ? cooldown : 0f;
+
+                if (!submerged)
+                {
+                    if (_wasSubmerged[i])
+                        EmitContact(ShipWaterContactType.Exit, i, worldPoint, sample.surfaceNormal, Vector3.zero, 0f);
+
+                    _wasSubmerged[i] = false;
+                    _lastForces[i] = Vector3.zero;
+                    _lastBuoyancyForces[i] = Vector3.zero;
+                    _lastDampingForces[i] = Vector3.zero;
+                    _lastSubmergence[i] = 0f;
+                    continue;
+                }
+
+                float submergence = Mathf.Clamp01(depth / Mathf.Max(0.05f, point.maxSubmersionDepth));
+                Vector3 pointVelocity = rb.GetPointVelocity(worldPoint);
+                Vector3 relativeVelocity = pointVelocity - sample.waterVelocity;
+                _lastSubmergence[i] = submergence;
+
+                Vector3 buoyDir = Vector3.Slerp(up, sample.surfaceNormal, 0.45f).normalized;
+                float buoyancyN = buoyancyForce * point.buoyancy * buoyancyMul * submergence;
+                Vector3 buoyancyComponent = buoyDir * buoyancyN;
+
+                float pointDamping = Mathf.Max(0f, point.damping);
+                Vector3 vertical = Vector3.Project(relativeVelocity, up);
+                Vector3 lateral = Vector3.Project(relativeVelocity, right);
+                Vector3 longitudinal = Vector3.Project(relativeVelocity, fwd);
+                Vector3 relativeToCurrent = relativeVelocity;
+
+                Vector3 dampingComponent = Vector3.zero;
+                dampingComponent += -vertical * (verticalDamping * pointDamping * dragMul * submergence);
+                dampingComponent += -lateral * (lateralDrag * dragMul * submergence);
+                dampingComponent += -longitudinal * (longitudinalDrag * dragMul * submergence);
+                dampingComponent += -relativeToCurrent * (currentRelativeDrag * dragMul * submergence * 0.25f);
+
+                Vector3 force = buoyancyComponent + dampingComponent;
+
+                if (force.magnitude > maxForcePerPoint)
+                {
+                    float scale = maxForcePerPoint / Mathf.Max(0.0001f, force.magnitude);
+                    buoyancyComponent *= scale;
+                    dampingComponent *= scale;
+                    force *= scale;
+                }
+
+                rb.AddForceAtPosition(force, worldPoint, ForceMode.Force);
+                _lastForces[i] = force;
+                _lastBuoyancyForces[i] = buoyancyComponent;
+                _lastDampingForces[i] = dampingComponent;
+                _lastResultantForce += force;
+                _lastResultantTorque += Vector3.Cross(worldPoint - _lastCenterOfMass, force);
+                _lastSubmergedPoints++;
+
+                averageNormalAccum += sample.surfaceNormal * submergence;
+                averageNormalWeight += submergence;
+
+                if (!_wasSubmerged[i])
+                    EmitContact(ShipWaterContactType.Enter, i, worldPoint, sample.surfaceNormal, relativeVelocity, 0f);
+
+                float impactSpeed = Mathf.Max(0f, Vector3.Dot(-sample.surfaceNormal, relativeVelocity));
+                if (point.emitContacts && impactSpeed > impactSpeedThreshold && _cooldowns[i] <= 0f)
+                {
+                    float strength = impactSpeed * impactMul;
+                    EmitContact(ShipWaterContactType.Impact, i, worldPoint, sample.surfaceNormal, relativeVelocity, strength);
+                    _cooldowns[i] = contactCooldown;
+                    _lastImpactStrength = Mathf.Max(_lastImpactStrength, strength);
+                }
+
+                _wasSubmerged[i] = true;
+            }
+
+            _lastAverageSurfaceNormal = averageNormalWeight > 0.0001f
+                ? (averageNormalAccum / averageNormalWeight).normalized
+                : Vector3.up;
+
+            Vector3 stabilizationTorque = ComputeStabilityTorque(dragMul, _lastAverageSurfaceNormal);
+            if (stabilizationTorque.sqrMagnitude > 0.000001f)
+            {
+                rb.AddTorque(stabilizationTorque, ForceMode.Acceleration);
+                _lastResultantTorque += stabilizationTorque;
+            }
+
+            Vector3 angularDampingTorque = -rb.angularVelocity * (angularDrag * dragMul);
+            rb.AddTorque(angularDampingTorque, ForceMode.Acceleration);
+            _lastResultantTorque += angularDampingTorque;
+
+            rb.linearVelocity = Vector3.ClampMagnitude(rb.linearVelocity, maxShipSpeed);
+            rb.angularVelocity = Vector3.ClampMagnitude(rb.angularVelocity, maxAngularSpeed);
+
+            _linearAcceleration = (rb.linearVelocity - _previousVelocity) / dt;
+            _angularAcceleration = (rb.angularVelocity - _previousAngularVelocity) / dt;
+            _previousVelocity = rb.linearVelocity;
+            _previousAngularVelocity = rb.angularVelocity;
+        }
+
+        private Vector3 ComputeStabilityTorque(float dragMul, Vector3 averageSurfaceNormal)
+        {
+            if (rb == null || _lastSubmergedPoints <= 0)
+                return Vector3.zero;
+
+            Vector3 desiredUp = Vector3.Slerp(
+                Vector3.up,
+                averageSurfaceNormal.sqrMagnitude > 0.0001f ? averageSurfaceNormal.normalized : Vector3.up,
+                Mathf.Clamp01(surfaceNormalInfluence));
+
+            Vector3 correctionAxisWorld = Vector3.Cross(transform.up, desiredUp);
+            Vector3 correctionAxisLocal = transform.InverseTransformDirection(correctionAxisWorld);
+            Vector3 localAngularVelocity = transform.InverseTransformDirection(rb.angularVelocity);
+
+            Vector3 localTorque = Vector3.zero;
+            localTorque.x = correctionAxisLocal.x * pitchStability - localAngularVelocity.x * pitchDamping;
+            localTorque.z = correctionAxisLocal.z * rollStability - localAngularVelocity.z * rollDamping;
+
+            Vector3 worldTorque = transform.TransformDirection(localTorque);
+
+            float upsideDown = Mathf.Clamp01(-Vector3.Dot(transform.up, desiredUp));
+            if (upsideDown > 0.0001f)
+            {
+                Vector3 recoveryAxis = correctionAxisWorld.sqrMagnitude > 0.0001f
+                    ? correctionAxisWorld.normalized
+                    : transform.right;
+                worldTorque += recoveryAxis * (upsideDown * inversionRecoveryTorque);
+            }
+
+            float maxTorque = Mathf.Max(0.01f, maxStabilityTorque) * Mathf.Max(0.25f, dragMul);
+            return Vector3.ClampMagnitude(worldTorque, maxTorque);
+        }
+
+        public Vector3 GetApparentForceAtDeckPoint(Vector3 worldPoint)
+        {
+            Vector3 r = worldPoint - rb.worldCenterOfMass;
+            Vector3 angular = Vector3.Cross(_angularAcceleration, r) + Vector3.Cross(rb.angularVelocity, Vector3.Cross(rb.angularVelocity, r));
+            return Physics.gravity - _linearAcceleration - angular;
+        }
+
+        private void EmitContact(ShipWaterContactType type, int pointIndex, Vector3 worldPoint, Vector3 normal, Vector3 relativeVelocity, float impact)
+        {
+            var handler = WaterContact;
+            if (handler == null)
+                return;
+
+            ShipWaterContactEvent ev;
+            ev.contactType = type;
+            ev.pointIndex = pointIndex;
+            ev.worldPoint = worldPoint;
+            ev.surfaceNormal = normal;
+            ev.relativeVelocity = relativeVelocity;
+            ev.impactStrength = impact;
+
+            handler.Invoke(ev);
+        }
+
+        private void EnsureRuntimeBuffers()
+        {
+            int count = points != null ? points.Length : 0;
+            if (count <= 0)
+                return;
+
+            if (_wasSubmerged == null || _wasSubmerged.Length != count)
+            {
+                _wasSubmerged = new bool[count];
+                _cooldowns = new float[count];
+                _lastForces = new Vector3[count];
+                _lastWorldPoints = new Vector3[count];
+                _lastSurfaceNormals = new Vector3[count];
+                _lastBuoyancyForces = new Vector3[count];
+                _lastDampingForces = new Vector3[count];
+                _lastSubmergence = new float[count];
+            }
+        }
+
+        private static float NormalizeSigned(float angle)
+        {
+            angle %= 360f;
+            if (angle > 180f) angle -= 360f;
+            if (angle < -180f) angle += 360f;
+            return angle;
+        }
+
+#if UNITY_EDITOR
+        private void OnDrawGizmos()
+        {
+            if (debugDrawAlways)
+                DrawDebugGizmos();
+        }
+
+        private void OnDrawGizmosSelected()
+        {
+            DrawDebugGizmos();
+        }
+
+        private void DrawDebugGizmos()
+        {
+            if (points == null)
+                return;
+
+            for (int i = 0; i < points.Length; i++)
+            {
+                Vector3 world = transform.TransformPoint(points[i].localPosition);
+                if (_lastWorldPoints != null && i < _lastWorldPoints.Length && _lastWorldPoints[i] != Vector3.zero)
+                    world = _lastWorldPoints[i];
+
+                bool submerged = _lastSubmergence != null && i < _lastSubmergence.Length && _lastSubmergence[i] > 0.001f;
+                Gizmos.color = submerged
+                    ? new Color(0.15f, 0.95f, 1f, 0.95f)
+                    : new Color(0.45f, 0.45f, 0.45f, 0.9f);
+                Gizmos.DrawWireSphere(world, Mathf.Max(0.03f, points[i].radius));
+
+                if (debugDrawNormals && _lastSurfaceNormals != null && i < _lastSurfaceNormals.Length)
+                {
+                    Vector3 n = _lastSurfaceNormals[i];
+                    if (n.sqrMagnitude > 0.0001f)
+                        DrawArrow(world, n.normalized * debugNormalScale, new Color(0.35f, 0.75f, 1f, 0.9f));
+                }
+
+                if (!debugDrawForces || _lastForces == null || i >= _lastForces.Length)
+                    continue;
+
+                if (_lastBuoyancyForces != null && i < _lastBuoyancyForces.Length)
+                    DrawArrow(world, _lastBuoyancyForces[i] * debugForceScale, new Color(0.25f, 1f, 0.25f, 0.95f));
+
+                if (_lastDampingForces != null && i < _lastDampingForces.Length)
+                    DrawArrow(world, _lastDampingForces[i] * debugForceScale, new Color(1f, 0.6f, 0.15f, 0.95f));
+
+                DrawArrow(world, _lastForces[i] * debugForceScale, new Color(1f, 1f, 1f, 0.95f));
+
+                if (debugLabels)
+                {
+                    string name = string.IsNullOrEmpty(points[i].name) ? $"P{i}" : points[i].name;
+                    float forceMag = _lastForces[i].magnitude;
+                    float sub = _lastSubmergence != null && i < _lastSubmergence.Length ? _lastSubmergence[i] : 0f;
+                    UnityEditor.Handles.Label(world + Vector3.up * 0.25f, $"{name}\\nF:{forceMag:0} N\\nSub:{sub:0.00}");
+                }
+            }
+
+            if (rb != null && debugDrawResultants)
+            {
+                Vector3 com = _lastCenterOfMass != Vector3.zero ? _lastCenterOfMass : rb.worldCenterOfMass;
+                Gizmos.color = new Color(1f, 0.35f, 0.95f, 0.95f);
+                Gizmos.DrawSphere(com, 0.12f);
+
+                DrawArrow(com, _lastResultantForce * debugResultantScale, new Color(1f, 0.25f, 0.95f, 0.95f));
+                DrawArrow(com, _lastResultantTorque * debugTorqueScale, new Color(1f, 0.85f, 0.2f, 0.95f));
+
+                if (debugDrawNormals)
+                    DrawArrow(com, _lastAverageSurfaceNormal * debugNormalScale * 1.2f, new Color(0.3f, 0.8f, 1f, 0.9f));
+
+                if (debugLabels)
+                {
+                    UnityEditor.Handles.Label(
+                        com + Vector3.up * 0.4f,
+                        $"Resultant F: {_lastResultantForce.magnitude:0} N\\nResultant T: {_lastResultantTorque.magnitude:0.00}\\nSubmerged points: {_lastSubmergedPoints}");
+                }
+            }
+        }
+
+        private static void DrawArrow(Vector3 origin, Vector3 vector, Color color)
+        {
+            if (vector.sqrMagnitude < 0.000001f)
+                return;
+
+            Gizmos.color = color;
+            Vector3 end = origin + vector;
+            Gizmos.DrawLine(origin, end);
+
+            Vector3 dir = vector.normalized;
+            float headLength = Mathf.Min(vector.magnitude * 0.2f, 0.45f);
+            if (headLength < 0.001f)
+                return;
+
+            Vector3 side = Vector3.Cross(dir, Vector3.up);
+            if (side.sqrMagnitude < 0.0001f)
+                side = Vector3.Cross(dir, Vector3.right);
+            side.Normalize();
+            Vector3 up = Vector3.Cross(side, dir).normalized;
+
+            float wing = headLength * 0.4f;
+            Gizmos.DrawLine(end, end - dir * headLength + side * wing);
+            Gizmos.DrawLine(end, end - dir * headLength - side * wing);
+            Gizmos.DrawLine(end, end - dir * headLength + up * wing);
+            Gizmos.DrawLine(end, end - dir * headLength - up * wing);
+        }
+#endif
+    }
+}
+
