@@ -584,8 +584,20 @@ namespace RumOverboard.Networking
         // ---- Input ---------------------------------------------------------------
         public void OnInput(NetworkRunner runner, NetworkInput input)
         {
-            if (Camera.main != null)
+            var rig = RumOverboard.Gameplay.PlayerCameraRig.Instance;
+            if (rig != null)
+            {
+                _input.CameraYaw = rig.Yaw;
+                _input.CameraPitch = rig.Pitch;
+            }
+            else if (Camera.main != null)
+            {
                 _input.CameraYaw = Camera.main.transform.eulerAngles.y;
+                float pitch = Camera.main.transform.eulerAngles.x;
+                if (pitch > 180f) pitch -= 360f;
+                _input.CameraPitch = Mathf.Clamp(pitch, -89f, 89f);
+            }
+
             input.Set(_input.Read());
         }
 

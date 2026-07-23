@@ -23,6 +23,9 @@ namespace RumOverboard.Networking
         /// <summary>Camera yaw (deg) so movement is relative to where the player looks.</summary>
         public float LookYaw;
 
+        /// <summary>Camera pitch (deg, signed) for view-based interactions and head look IK.</summary>
+        public float LookPitch;
+
         public NetworkButtons Buttons;
     }
 }

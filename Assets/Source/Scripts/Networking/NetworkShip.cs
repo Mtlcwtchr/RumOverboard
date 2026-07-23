@@ -33,9 +33,6 @@ namespace RumOverboard.Networking
         [SerializeField] private OceanWaveField waveField;
         [SerializeField] private ShipSailSystem sailSystem;
 
-        [Header("Collider safety")]
-        [SerializeField] private bool disableNonConvexVisualMeshColliders = true;
-
         [Header("Ocean time correction (proxies)")]
         [SerializeField] private float oceanTimeCorrectionThreshold = 0.1f;
         [SerializeField] private float oceanTimeCorrectionGain = 0.1f;
@@ -68,8 +65,6 @@ namespace RumOverboard.Networking
             // Cosmetic bow/wake foam on every peer (derives speed from the synced transform).
             if (GetComponent<ShipWakeFoam>() == null)
                 gameObject.AddComponent<ShipWakeFoam>();
-
-            SanitizeVisualColliders();
 
             // The Physics addon must own the transform; without it the ship won't replicate.
             _hasNetworkRigidbody = TryGetComponent(out Fusion.Addons.Physics.NetworkRigidbody3D _);
@@ -131,53 +126,6 @@ namespace RumOverboard.Networking
             }
         }
 
-        private void SanitizeVisualColliders()
-        {
-            if (!disableNonConvexVisualMeshColliders || _rb == null)
-                return;
-
-            // The hull is a DYNAMIC rigidbody, and PhysX rejects non-convex MeshColliders on dynamic
-            // bodies (they collide with nothing → the crew falls through the deck). So convert the
-            // walkable/structural mesh colliders to CONVEX (valid on a dynamic body, and a per-part
-            // convex hull of a deck/stair/hull piece is still solid to stand and climb on), and just
-            // disable decorative meshes (sails/rigging/flags/masts — masts are climbed via their own
-            // capsule colliders, not the mesh).
-            int convexified = 0;
-            int disabled = 0;
-            MeshCollider[] colliders = GetComponentsInChildren<MeshCollider>(true);
-            for (int i = 0; i < colliders.Length; i++)
-            {
-                MeshCollider meshCollider = colliders[i];
-                if (meshCollider == null || meshCollider.convex)
-                    continue;
-
-                if (IsDecorativeColliderName(meshCollider.name))
-                {
-                    if (meshCollider.enabled)
-                    {
-                        meshCollider.enabled = false;
-                        disabled++;
-                    }
-                    continue;
-                }
-
-                meshCollider.convex = true;
-                if (!meshCollider.enabled)
-                    meshCollider.enabled = true;
-                convexified++;
-            }
-
-            if (convexified > 0 || disabled > 0)
-                Debug.Log($"[NetworkShip] Collision sanitized on '{name}': {convexified} mesh colliders → convex (walkable/hull), {disabled} decorative disabled.");
-        }
-
-        // Meshes that should NOT be walkable collision on the ship (rigging/cloth/masts).
-        private static bool IsDecorativeColliderName(string n)
-        {
-            return n.Contains("Sail") || n.Contains("Wire") || n.Contains("Rope")
-                   || n.Contains("Flag") || n.Contains("Cloth") || n.Contains("Mast")
-                   || n.Contains("Rigging");
-        }
     }
 }
 #endif

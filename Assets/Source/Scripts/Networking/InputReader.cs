@@ -16,6 +16,7 @@ namespace RumOverboard.Networking
     public sealed class InputReader
     {
         public float CameraYaw;
+        public float CameraPitch;
 
         public NetworkInputData Read()
         {
@@ -35,6 +36,7 @@ namespace RumOverboard.Networking
 
             data.Move = Vector2.ClampMagnitude(move, 1f);
             data.LookYaw = CameraYaw;
+            data.LookPitch = CameraPitch;
 
             bool jump = (kb != null && kb.spaceKey.isPressed) || (gp != null && gp.buttonSouth.isPressed);
             bool climb = (kb != null && kb.leftShiftKey.isPressed) || (gp != null && gp.leftShoulder.isPressed);

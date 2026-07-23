@@ -6,6 +6,7 @@ using RumOverboard.Gameplay;
 using RumOverboard.Gameplay.States;
 using RumOverboard.StateMachine;
 using RumOverboard.StateMachine.Serialization;
+using Source.Scripts.Gameplay;
 using UnityEngine;
 
 namespace RumOverboard.Networking
@@ -22,6 +23,8 @@ namespace RumOverboard.Networking
         public float RagdollControl; // 0..1 — how much authority the ragdoll has
         public float PlanarSpeed;    // for animation on all peers
         public float TuckAmount;     // 0..1 jump/land leg-tuck — drives the capsule + anim on all peers
+        public float LookYaw;        // camera yaw replicated for cosmetics (head look)
+        public float LookPitch;      // camera pitch replicated for cosmetics + view raycast
         public uint StateMask;       // active PlayerState bit set
         public byte PayloadVersion;
         public byte PayloadLength;
@@ -86,9 +89,17 @@ namespace RumOverboard.Networking
                  "You can also mark trigger colliders with WaterTrigger component.")]
         [SerializeField] private LayerMask waterMask;
 
-        [Tooltip("Layers searched for a Helm ShipInteractionZone (the wheel). Default = everything.")]
+        [Tooltip("Layers used by the view raycast for ShipInteractionZone colliders (helm and other interactables).")]
         [SerializeField] private LayerMask helmMask = ~0;
         [SerializeField] private float helmReach = 1.6f;
+        [SerializeField] private float interactionProbeRadius = 0.08f;
+
+        [Header("Look follow")]
+        [Tooltip("How far the head can yaw before the torso starts catching up (deg).")]
+        [SerializeField] private float neckYawLimit = 75f;
+        [Tooltip("Yaw offset left after torso catch-up starts (deg). Lower = body turns more aggressively.")]
+        [SerializeField] private float keepHeadYawAfterBodyTurn = 45f;
+        [SerializeField] private float lookBodyTurnSpeedDeg = 540f;
 
         // --- Replicated state (one struct + one payload buffer + input echo) ---
         [Networked] public PlayerNetState State { get; set; }
@@ -101,7 +112,7 @@ namespace RumOverboard.Networking
         private readonly HashSet<Collider> _waterTriggers = new();
         private readonly byte[] _payloadScratch = new byte[PayloadCapacity];
         private readonly Collider[] _climbHits = new Collider[4];
-        private readonly Collider[] _helmHits = new Collider[6];
+        private readonly RaycastHit[] _interactionHits = new RaycastHit[8];
         private RumOverboard.Gameplay.Ocean.ShipHelm _nearbyHelm; // helm within reach this tick
         private RumOverboard.Gameplay.Ocean.ShipHelm _activeHelm; // helm we currently occupy (host)
         private bool _pinnedToHelm;      // body is kinematic + hard-pinned to the wheel this tick
@@ -113,6 +124,9 @@ namespace RumOverboard.Networking
 
         public float Drunkenness => State.Drunkenness;
         public float RagdollControl => State.RagdollControl;
+        public float ViewYaw => State.LookYaw;
+        public float ViewPitch => State.LookPitch;
+        public Vector3 ViewDirection => Quaternion.Euler(State.LookPitch, State.LookYaw, 0f) * Vector3.forward;
 
         // --- Read-only surface for the procedural-animation layer (every peer) ---
         public float PlanarSpeed => State.PlanarSpeed;
@@ -155,6 +169,16 @@ namespace RumOverboard.Networking
                 var climbRig = animator.GetComponent<ProceduralClimbRig>();
                 if (climbRig == null) climbRig = animator.gameObject.AddComponent<ProceduralClimbRig>();
                 climbRig.Configure(this, climbMask);
+
+                System.Type lookRigType = typeof(ProceduralClimbRig).Assembly
+                    .GetType("RumOverboard.Gameplay.ProceduralLookRig");
+                if (lookRigType != null)
+                {
+                    Component lookRig = animator.GetComponent(lookRigType);
+                    if (lookRig == null)
+                        lookRig = animator.gameObject.AddComponent(lookRigType);
+                    lookRig.SendMessage("Configure", this, SendMessageOptions.DontRequireReceiver);
+                }
             }
 
             // Prediction is available when the prefab uses the Physics addon's NetworkRigidbody3D:
@@ -242,7 +266,7 @@ namespace RumOverboard.Networking
                 if (!_warnedKinematic)
                 {
                     _warnedKinematic = true;
-                    var sim = FindFirstObjectByType<Fusion.Addons.Physics.RunnerSimulatePhysics3D>();
+                    var sim = FindAnyObjectByType<Fusion.Addons.Physics.RunnerSimulatePhysics3D>();
                     bool simOnRunner = Runner != null &&
                                        Runner.GetComponent<Fusion.Addons.Physics.RunnerSimulatePhysics3D>() != null;
                     Debug.LogWarning($"[NetworkPlayer] {name} id={Object.Id} SIMULATING but KINEMATIC. " +
@@ -262,11 +286,14 @@ namespace RumOverboard.Networking
             FillContextForSimulation(input, s);
 
             _machine.FixedTick(_ctx);
+            ApplyLookDrivenBodyTurn();
             HandleHelm(input);
             ApplyHelmPinning(_machine.IsActive(PlayerState.Steering));
 
             s.Drunkenness = _ctx.Drunkenness;
             s.PlanarSpeed = _ctx.PlanarSpeed;
+            s.LookYaw = _ctx.LookYaw;
+            s.LookPitch = _ctx.LookPitch;
             s.States = _machine.Active;
             UpdateRagdollControl(ref s);
             UpdateTuck(ref s);
@@ -300,6 +327,7 @@ namespace RumOverboard.Networking
             _ctx.ControlAuthority = 1f - s.RagdollControl;
             _ctx.Move = input.Move * _ctx.ControlAuthority;
             _ctx.LookYaw = input.LookYaw;
+            _ctx.LookPitch = input.LookPitch;
             _ctx.JumpPressed = pressed.IsSet(NetworkInputData.ButtonJump);
             _ctx.ClimbPressed = pressed.IsSet(NetworkInputData.ButtonClimb);
             _ctx.InteractPressed = pressed.IsSet(NetworkInputData.ButtonInteract);
@@ -310,8 +338,8 @@ namespace RumOverboard.Networking
             _ctx.InWater = _waterTriggers.Count > 0;
             _ctx.NearClimb = ProbeClimb();
 
-            // Helm: near a wheel we can actually take (free, or already ours).
-            _nearbyHelm = ProbeHelm();
+            // Interactions are view-based: raycast from the camera anchor in look direction.
+            _ctx.HasInteractionTarget = TryGetInteractionTarget(input.LookYaw, input.LookPitch, out _, out _nearbyHelm);
             bool helmFree = _nearbyHelm != null &&
                             (!_nearbyHelm.IsOccupied || _nearbyHelm.Occupant == Object.InputAuthority);
             _ctx.NearHelm = helmFree;
@@ -352,10 +380,12 @@ namespace RumOverboard.Networking
                 _ctx.GroundVelocity = (groundBody != null && groundBody != _rb)
                     ? groundBody.GetPointVelocity(hit.point)
                     : Vector3.zero;
+                _ctx.GroundNormal = hit.normal;
                 return true;
             }
 
             _ctx.GroundVelocity = Vector3.zero;
+            _ctx.GroundNormal = Vector3.up;
             return false;
         }
 
@@ -380,27 +410,77 @@ namespace RumOverboard.Networking
             return true;
         }
 
-        // Finds a Helm interaction zone within reach and returns the ship's helm (if any).
-        private RumOverboard.Gameplay.Ocean.ShipHelm ProbeHelm()
+        // View-based interaction probe used both by simulation (authoritative checks) and local HUD.
+        public bool TryGetInteractionTarget(float lookYaw, float lookPitch,
+            out ShipInteractionZone zone,
+            out RumOverboard.Gameplay.Ocean.ShipHelm helm)
         {
-            int count = Physics.OverlapSphereNonAlloc(
-                transform.position + Vector3.up,
+            zone = null;
+            helm = null;
+
+            Vector3 origin = CameraAnchor.position;
+            Vector3 dir = Quaternion.Euler(lookPitch, lookYaw, 0f) * Vector3.forward;
+            float radius = Mathf.Max(0f, interactionProbeRadius);
+
+            int count = Physics.SphereCastNonAlloc(
+                origin,
+                radius,
+                dir,
+                _interactionHits,
                 helmReach,
-                _helmHits,
                 helmMask,
                 QueryTriggerInteraction.Collide);
 
+            float nearest = float.MaxValue;
+            ShipInteractionZone best = null;
             for (int i = 0; i < count; i++)
             {
-                var zone = _helmHits[i].GetComponentInParent<Source.Scripts.Gameplay.ShipInteractionZone>();
-                if (zone == null || zone.Zone != Source.Scripts.Gameplay.ShipInteractionZone.ZoneKind.Helm)
+                RaycastHit hit = _interactionHits[i];
+                Collider col = hit.collider;
+                if (col == null || col.transform.IsChildOf(transform))
                     continue;
 
-                var helm = _helmHits[i].GetComponentInParent<RumOverboard.Gameplay.Ocean.ShipHelm>();
-                if (helm != null)
-                    return helm;
+                ShipInteractionZone candidate = col.GetComponentInParent<ShipInteractionZone>();
+                if (candidate == null || hit.distance >= nearest)
+                    continue;
+
+                nearest = hit.distance;
+                best = candidate;
             }
-            return null;
+
+            zone = best;
+            if (zone == null)
+                return false;
+
+            if (zone.Zone == ShipInteractionZone.ZoneKind.Helm)
+                helm = zone.GetComponentInParent<RumOverboard.Gameplay.Ocean.ShipHelm>();
+
+            return true;
+        }
+
+        // Keep head-only look natural: once yaw exceeds neck limits, the torso catches up.
+        private void ApplyLookDrivenBodyTurn()
+        {
+            if (_rb == null || _ctx.ControlAuthority <= 0.001f)
+                return;
+
+            if (_machine.IsActive(PlayerState.Steering) ||
+                _machine.IsActive(PlayerState.Climbing) ||
+                _machine.IsActive(PlayerState.Swimming) ||
+                IsKnockedOut)
+                return;
+
+            float limit = Mathf.Max(5f, neckYawLimit);
+            float keep = Mathf.Clamp(keepHeadYawAfterBodyTurn, 0f, limit - 1f);
+            float deltaYaw = Mathf.DeltaAngle(_rb.rotation.eulerAngles.y, _ctx.LookYaw);
+            if (Mathf.Abs(deltaYaw) <= limit)
+                return;
+
+            float targetYaw = _ctx.LookYaw - Mathf.Sign(deltaYaw) * keep;
+            float speed = Mathf.Max(0.01f, lookBodyTurnSpeedDeg);
+            float maxStep = speed * Runner.DeltaTime;
+            float nextYaw = Mathf.MoveTowardsAngle(_rb.rotation.eulerAngles.y, targetYaw, maxStep);
+            _rb.MoveRotation(Quaternion.Euler(0f, nextYaw, 0f));
         }
 
         // Host-authoritative helm occupancy + steering feed. On the predicting client the helm is a
@@ -468,6 +548,8 @@ namespace RumOverboard.Networking
             var s = State;
             _ctx.PlanarSpeed = s.PlanarSpeed;
             _ctx.Drunkenness = s.Drunkenness;
+            _ctx.LookYaw = s.LookYaw;
+            _ctx.LookPitch = s.LookPitch;
             _ctx.Animator = animator;
 
             if (!HasStateAuthority)

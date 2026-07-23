@@ -24,6 +24,10 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private Vector3 wheelSpinAxis = Vector3.forward;
         [Tooltip("Where the helmsman stands. Falls back to this transform.")]
         [SerializeField] private Transform standAnchor;
+        [Tooltip("If standAnchor is accidentally placed on the bow side of the wheel, mirror it to the aft side at runtime.")]
+        [SerializeField] private bool autoFlipStandToAft = true;
+        [Tooltip("Force the helmsman to face the ship's bow while steering.")]
+        [SerializeField] private bool faceBow = true;
         [Tooltip("Rudder position in ship-local space (stern, underwater). Water flow is sampled here.")]
         [SerializeField] private Vector3 rudderLocal = new Vector3(0f, -0.8f, -4.6f);
 
@@ -65,13 +69,35 @@ namespace RumOverboard.Gameplay.Ocean
         /// <summary>Normalised wheel position, -1..1 (for HUD/debug).</summary>
         public float WheelNormalized => maxWheelDegrees > 0.01f ? Mathf.Clamp(WheelAngle / maxWheelDegrees, -1f, 1f) : 0f;
 
-        public Vector3 StandPosition => standAnchor != null ? standAnchor.position : transform.position;
+        public Vector3 StandPosition
+        {
+            get
+            {
+                Vector3 pos = standAnchor != null ? standAnchor.position : transform.position;
+                if (!autoFlipStandToAft || wheelModel == null)
+                    return pos;
+
+                Vector3 wheelToStand = pos - wheelModel.position;
+                wheelToStand.y = 0f;
+                if (wheelToStand.sqrMagnitude < 0.0001f)
+                    return pos;
+
+                // Helmsman should stand on the aft side of the wheel (toward -ship forward).
+                if (Vector3.Dot(wheelToStand, transform.forward) > 0f)
+                    return wheelModel.position - wheelToStand;
+
+                return pos;
+            }
+        }
 
         /// <summary>Yaw (deg) the helmsman should face — toward the wheel from the stand.</summary>
         public float FacingYaw
         {
             get
             {
+                if (faceBow)
+                    return transform.eulerAngles.y;
+
                 if (wheelModel != null)
                 {
                     Vector3 d = wheelModel.position - StandPosition;
@@ -183,6 +209,10 @@ namespace RumOverboard.Gameplay.Ocean
             {
                 Gizmos.color = new Color(1f, 0.85f, 0.3f, 0.9f);
                 Gizmos.DrawWireCube(standAnchor.position, Vector3.one * 0.4f);
+
+                Gizmos.color = new Color(0.35f, 1f, 0.55f, 0.95f);
+                Gizmos.DrawWireCube(StandPosition, Vector3.one * 0.3f);
+                Gizmos.DrawLine(StandPosition, StandPosition + Quaternion.Euler(0f, FacingYaw, 0f) * Vector3.forward * 0.8f);
             }
         }
 #endif

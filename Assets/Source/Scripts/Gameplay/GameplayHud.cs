@@ -21,22 +21,44 @@ namespace RumOverboard.Gameplay
     /// </summary>
     public sealed class GameplayHud : MonoBehaviour
     {
+        public static GameplayHud Instance { get; private set; }
+
         [SerializeField] private Text sessionLabel;
         [SerializeField] private Text crewLabel;
         [SerializeField] private Button leaveButton;
+        [SerializeField] private Image interactionHintPanel;
+        [SerializeField] private Text interactionHintLabel;
 
         [Tooltip("Scene to return to when leaving the session.")]
         [SerializeField] private string menuScene = "FusionSampleMenu";
 
         private bool _leaving;
+        private string _lastInteractionHint;
 
         private void Awake()
         {
+            if (Instance != null && Instance != this)
+            {
+                Destroy(gameObject);
+                return;
+            }
+            Instance = this;
+
             if (sessionLabel == null || crewLabel == null || leaveButton == null)
                 BuildUi();
+            else
+                EnsureInteractionUi();
 
             if (leaveButton != null)
                 leaveButton.onClick.AddListener(() => Leave().Forget());
+
+            SetInteractionHint(null);
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+                Instance = null;
         }
 
         private void Update()
@@ -59,6 +81,21 @@ namespace RumOverboard.Gameplay
                 int ping = (int)(runner.GetPlayerRtt(runner.LocalPlayer) * 1000);
                 crewLabel.text = $"Crew: {crew}/{max}    Ping: {ping} ms";
             }
+        }
+
+        public void SetInteractionHint(string hint)
+        {
+            if (interactionHintLabel == null || interactionHintPanel == null)
+                return;
+
+            string normalized = string.IsNullOrWhiteSpace(hint) ? null : hint;
+            if (_lastInteractionHint == normalized)
+                return;
+
+            _lastInteractionHint = normalized;
+            bool visible = normalized != null;
+            interactionHintPanel.gameObject.SetActive(visible);
+            interactionHintLabel.text = visible ? normalized : string.Empty;
         }
 
         private async UniTask Leave()
@@ -109,6 +146,59 @@ namespace RumOverboard.Gameplay
             if (leaveButton == null)
                 leaveButton = MakeButton(canvas.transform, font, "Leave",
                     new Vector2(1f, 1f), new Vector2(-20f, -20f));
+
+            EnsureInteractionUi();
+        }
+
+        private void EnsureInteractionUi()
+        {
+            if (interactionHintPanel != null && interactionHintLabel != null)
+                return;
+
+            Transform parent = null;
+            if (sessionLabel != null)
+                parent = sessionLabel.canvas != null ? sessionLabel.canvas.transform : sessionLabel.transform.root;
+
+            if (parent == null)
+            {
+                Canvas canvas = FindAnyObjectByType<Canvas>();
+                parent = canvas != null ? canvas.transform : transform;
+            }
+
+            Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf")
+                        ?? Resources.GetBuiltinResource<Font>("Arial.ttf");
+
+            var panelGo = new GameObject("Interaction Hint", typeof(Image));
+            panelGo.transform.SetParent(parent, false);
+            interactionHintPanel = panelGo.GetComponent<Image>();
+            interactionHintPanel.color = new Color(0.08f, 0.1f, 0.14f, 0.78f);
+            interactionHintPanel.raycastTarget = false;
+
+            var panelRt = interactionHintPanel.rectTransform;
+            panelRt.anchorMin = new Vector2(0.5f, 0f);
+            panelRt.anchorMax = new Vector2(0.5f, 0f);
+            panelRt.pivot = new Vector2(0.5f, 0f);
+            panelRt.sizeDelta = new Vector2(420f, 44f);
+            panelRt.anchoredPosition = new Vector2(0f, 48f);
+
+            Text label = MakeLabel(panelGo.transform, font, string.Empty,
+                new Vector2(0.5f, 0.5f), Vector2.zero, TextAnchor.MiddleCenter);
+            if (label == null)
+            {
+                Destroy(panelGo);
+                interactionHintPanel = null;
+                interactionHintLabel = null;
+                return;
+            }
+
+            interactionHintLabel = label;
+            interactionHintLabel.rectTransform.anchorMin = Vector2.zero;
+            interactionHintLabel.rectTransform.anchorMax = Vector2.one;
+            interactionHintLabel.rectTransform.sizeDelta = Vector2.zero;
+            interactionHintLabel.fontSize = 22;
+            interactionHintLabel.raycastTarget = false;
+
+            interactionHintPanel.gameObject.SetActive(false);
         }
 
         private static Text MakeLabel(Transform parent, Font font, string text,
@@ -161,7 +251,7 @@ namespace RumOverboard.Gameplay
             // InputSystemUIInputModule, not the legacy StandaloneInputModule. Normally the
             // Fusion Menu's own EventSystem is already loaded underneath, so this is only
             // hit when the gameplay scene is run on its own.
-            if (FindFirstObjectByType<EventSystem>() == null)
+            if (FindAnyObjectByType<EventSystem>() == null)
                 new GameObject("EventSystem", typeof(EventSystem), typeof(InputSystemUIInputModule));
         }
     }

@@ -48,11 +48,13 @@ namespace RumOverboard.StateMachine
         public bool NearClimb;
         public bool InWater;
         public bool NearHelm;
+        public bool HasInteractionTarget;
 
         // Velocity of whatever we're standing on (the ship deck), at the feet — includes the ship's
         // linear + rotational motion. Zero on static ground. Locomotion rides this so the crew moves
         // with the ship instead of sliding off.
         public Vector3 GroundVelocity;
+        public Vector3 GroundNormal = Vector3.up;
 
         // Helm anchor (world) the crew member locks to while Steering — filled by the driver.
         public bool HasSteerAnchor;
@@ -68,6 +70,7 @@ namespace RumOverboard.StateMachine
         // Move is already scaled by ControlAuthority so drunk/ragdolled crew steer less.
         public Vector2 Move;
         public float LookYaw;
+        public float LookPitch;
         public bool JumpPressed;
         public bool ClimbPressed;
         public bool InteractPressed;

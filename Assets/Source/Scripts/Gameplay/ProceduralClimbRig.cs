@@ -108,5 +108,65 @@ namespace RumOverboard.Gameplay
             return t != null ? t.position : fallback;
         }
     }
+
+    /// <summary>
+    /// Head-only look IK driven by replicated camera yaw/pitch.
+    /// Uses Animator look-at so the neck stays within a natural range.
+    /// </summary>
+    [DisallowMultipleComponent]
+    public sealed class ProceduralLookRig : MonoBehaviour
+    {
+        [SerializeField] private Animator animator;
+        [SerializeField] private NetworkPlayer player;
+
+        [Header("Look-at")]
+        [SerializeField] private float targetDistance = 8f;
+        [SerializeField] private float weightLerp = 10f;
+        [Range(0f, 89f)] [SerializeField] private float maxPitchUp = 60f;
+        [Range(0f, 89f)] [SerializeField] private float maxPitchDown = 55f;
+
+        [Header("Weights")]
+        [Range(0f, 1f)] [SerializeField] private float bodyWeight = 0f;
+        [Range(0f, 1f)] [SerializeField] private float headWeight = 0.95f;
+        [Range(0f, 1f)] [SerializeField] private float eyesWeight = 0.35f;
+        [Range(0f, 1f)] [SerializeField] private float clampWeight = 0.45f;
+
+        private float _weight;
+
+        private void Awake()
+        {
+            if (animator == null) animator = GetComponent<Animator>();
+            if (animator == null) animator = GetComponentInChildren<Animator>();
+            if (player == null) player = GetComponentInParent<NetworkPlayer>();
+        }
+
+        /// <summary>Runtime wiring when added by NetworkPlayer.</summary>
+        public void Configure(NetworkPlayer owner)
+        {
+            player = owner;
+            if (animator == null) animator = GetComponent<Animator>();
+        }
+
+        private void OnAnimatorIK(int layerIndex)
+        {
+            if (animator == null || !animator.enabled || !animator.isHuman)
+                return;
+
+            bool canLook = player != null && !player.IsKnockedOut;
+            _weight = Mathf.MoveTowards(_weight, canLook ? 1f : 0f, weightLerp * Time.deltaTime);
+            if (_weight <= 0.001f)
+            {
+                animator.SetLookAtWeight(0f);
+                return;
+            }
+
+            float pitch = Mathf.Clamp(player.ViewPitch, -maxPitchDown, maxPitchUp);
+            Vector3 origin = player.CameraAnchor.position;
+            Vector3 dir = Quaternion.Euler(pitch, player.ViewYaw, 0f) * Vector3.forward;
+
+            animator.SetLookAtWeight(_weight, bodyWeight, headWeight, eyesWeight, clampWeight);
+            animator.SetLookAtPosition(origin + dir * Mathf.Max(1f, targetDistance));
+        }
+    }
 }
 #endif

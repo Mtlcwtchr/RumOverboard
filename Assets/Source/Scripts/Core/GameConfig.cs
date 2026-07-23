@@ -38,6 +38,10 @@ namespace RumOverboard.Core
         public float TurnSpeedDeg = 720f;
         public float JumpImpulse = 6f;
 
+        [Tooltip("Max ground slope (deg) the crew can walk up freely (stair ramps, hull sides). Steeper = treated as a wall.")]
+        [Range(5f, 85f)]
+        public float MaxWalkableAngle = 50f;
+
         [Tooltip("Seconds to keep a jump press buffered until a valid grounded/coyote moment.")]
         public float JumpBufferTime = 0.18f;
 

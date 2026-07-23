@@ -63,11 +63,26 @@ namespace RumOverboard.Gameplay.States
 
             Vector2 nextPlanar = nextDirection * nextSpeed; // walking velocity relative to the deck
 
-            // Deck velocity + our own walking. Vertically ride the deck (heave) so waves don't fling
-            // us off; on static ground keep gravity-driven Y.
-            vel.x = pv.x + nextPlanar.x;
-            vel.z = pv.z + nextPlanar.y;
-            if (onMovingDeck)
+            // Reorient the walk onto the ground slope so the crew climbs ramps/stairs instead of
+            // pushing horizontally into them. Only for slopes flat enough to be walkable.
+            float maxWalkAngle = ctx.Config != null ? ctx.Config.MaxWalkableAngle : 50f;
+            Vector3 walk = new Vector3(nextPlanar.x, 0f, nextPlanar.y);
+            Vector3 groundN = ctx.GroundNormal;
+            bool walkableSlope = groundN.sqrMagnitude > 1e-4f && Vector3.Angle(groundN, Vector3.up) <= maxWalkAngle;
+            if (walkableSlope && walk.sqrMagnitude > 1e-6f)
+            {
+                Vector3 onSlope = Vector3.ProjectOnPlane(walk, groundN);
+                if (onSlope.sqrMagnitude > 1e-6f)
+                    walk = onSlope.normalized * walk.magnitude; // keep speed, add up/down slope component
+            }
+
+            // Deck velocity + our own walking. Ride the deck heave; add the slope's vertical
+            // component when climbing up so ramps are walkable; otherwise keep gravity-driven Y.
+            vel.x = pv.x + walk.x;
+            vel.z = pv.z + walk.z;
+            if (walkableSlope && walk.y > 0.001f)
+                vel.y = (onMovingDeck ? pv.y : 0f) + walk.y; // climb the ramp
+            else if (onMovingDeck)
                 vel.y = pv.y;
             ctx.Body.linearVelocity = vel;
 

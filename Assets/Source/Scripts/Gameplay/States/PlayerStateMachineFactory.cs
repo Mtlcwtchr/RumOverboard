@@ -50,12 +50,13 @@ namespace RumOverboard.Gameplay.States
                          && !c.InWater
                          && !c.Machine.IsActive(PlayerState.Climbing))
                 .AddDeactivate(PlayerState.Steering,
-                    c => c.Machine.IsActive(PlayerState.Steering) && (c.InteractPressed || !c.NearHelm));
+                    c => c.Machine.IsActive(PlayerState.Steering) && (c.InteractPressed || !c.HasSteerAnchor));
 
             // --- Action layer ---
             machine
                 .AddActivate(PlayerState.DrinkingRum,
                     c => c.InteractPressed
+                         && !c.HasInteractionTarget
                          && !c.NearHelm
                          && !c.Machine.IsActive(PlayerState.Steering)
                          && !c.Machine.IsActive(PlayerState.Swimming)
