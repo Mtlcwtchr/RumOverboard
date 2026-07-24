@@ -1,0 +1,7 @@
+# Graphify artifacts: avoid prompt-cache invalidation on each graph rebuild.
+graphify-out/
+Assets/Source/graphify-out/
+**/graphify-out/
+graph.json
+**/graph.json
+

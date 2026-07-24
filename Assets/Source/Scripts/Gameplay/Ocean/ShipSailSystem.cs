@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using RumOverboard.Gameplay.Ocean.Simulation;
 using UnityEngine;
 #if FUSION2
 using RumOverboard.Networking;
@@ -13,9 +14,14 @@ namespace RumOverboard.Gameplay.Ocean
     /// Each sail is a grid of particles simulated with Verlet integration,
     /// attached to yards and masts matching the visual model geometry.
     /// </summary>
+    /// <remarks>
+    /// DEPRECATED: Use <see cref="ShipSailsAggregator"/> + per-mast <see cref="Features.Masts.ShipMast"/> instead.
+    /// This monolithic class is retained for backwards compatibility with existing prefabs.
+    /// </remarks>
+    [System.Obsolete("Use ShipSailsAggregator + per-mast ShipMast components. This monolithic class is retained for legacy prefabs.")]
     [DisallowMultipleComponent]
     [RequireComponent(typeof(Rigidbody))]
-    public class ShipSailSystem : MonoBehaviour
+    public partial class ShipSailSystem : MonoBehaviour
     {
         #region Data Structures
 
@@ -172,6 +178,7 @@ namespace RumOverboard.Gameplay.Ocean
         #region Private state
 
         private Material _runtimeSailMaterial;
+        private bool _externallyDriven;
 
         private static readonly string[] VisualMastNameHints =
         {
@@ -486,6 +493,18 @@ namespace RumOverboard.Gameplay.Ocean
 
         private void FixedUpdate()
         {
+            if (_externallyDriven)
+                return;
+
+            Step(Time.fixedDeltaTime, Time.time);
+        }
+
+        /// <summary>
+        /// External simulation entry point used by a network authority that drives all ship systems
+        /// from one deterministic tick.
+        /// </summary>
+        public void Step(float deltaTime, float simulationTime)
+        {
             if (shipBody == null || sails == null || sails.Length == 0)
                 return;
 
@@ -496,8 +515,8 @@ namespace RumOverboard.Gameplay.Ocean
             if (windSystem == null)
                 windSystem = FindAnyObjectByType<OceanWindSystem>();
 
-            float dt = Mathf.Max(0.0001f, Time.fixedDeltaTime);
-            float simTime = Time.time;
+            float dt = Mathf.Max(0.0001f, deltaTime);
+            float simTime = simulationTime;
             Vector3 shipWorldPos = shipBody.worldCenterOfMass;
             Vector3 trueWind = windSystem != null ? windSystem.EvaluateWind(shipWorldPos, simTime) : Vector3.zero;
 
@@ -528,6 +547,11 @@ namespace RumOverboard.Gameplay.Ocean
 
             // Compute mast stress
             ComputeMastStress();
+        }
+
+        public void SetExternallyDriven(bool externallyDriven)
+        {
+            _externallyDriven = externallyDriven;
         }
 
         #endregion
@@ -746,126 +770,17 @@ namespace RumOverboard.Gameplay.Ocean
 
         private void ApplySailForces(SailPanel sail, Vector3 trueWind, bool applyForces)
         {
-            Vector3 apparentWind = trueWind - shipBody.linearVelocity;
-            if (apparentWind.sqrMagnitude < 0.01f)
-            {
-                sail.lastForce = Vector3.zero;
-                return;
-            }
-
-            float deployment = sail.hoist01 * Mathf.Lerp(0.15f, 1f, sail.extension01);
-            float effectiveArea = sail.baseArea * deployment * (1f - sail.damage01);
-            if (effectiveArea <= 0.001f)
-            {
-                sail.lastForce = Vector3.zero;
-                return;
-            }
-
-            // Compute aggregate sail normal from mesh
-            Vector3 sailNormal = ComputeAggregateNormal(sail);
-            Vector3 appDir = apparentWind.normalized;
-            float speed = apparentWind.magnitude;
-
-            float attack = Mathf.Clamp01(Mathf.Abs(Vector3.Dot(-appDir, sailNormal)));
-            float dynamicPressure = 0.5f * airDensity * speed * speed;
-
-            // Lift & drag coefficients
-            float liftCoeff = (attack * (1f - attack)) * 2.4f * liftFactor;
-            float dragCoeff = (0.15f + attack * 1.2f) * dragFactor;
-
-            Vector3 dragDir = appDir;
-            Vector3 liftDir = Vector3.Cross(appDir, Vector3.Cross(sailNormal, appDir));
-            if (liftDir.sqrMagnitude > 0.0001f) liftDir.Normalize();
-
-            Vector3 rigForce = (dragDir * dragCoeff + liftDir * (liftCoeff * sideForceFactor)) *
-                               (dynamicPressure * effectiveArea * sailForceScale);
-
-            // Reduce vertical component
-            Vector3 horizontal = Vector3.ProjectOnPlane(rigForce, Vector3.up);
-            rigForce = horizontal + Vector3.up * (rigForce.y * verticalForceFactor);
-
-            // Reduce reverse thrust
-            Vector3 driveForce = rigForce;
-            float forwardComponent = Vector3.Dot(driveForce, transform.forward);
-            if (forwardComponent < 0f)
-            {
-                Vector3 reverse = transform.forward * forwardComponent;
-                if (blockReverseDriveFromHeadwind)
-                {
-                    // Headwind loads sails and masts, but does not generate reverse propulsion.
-                    driveForce -= reverse;
-                }
-                else
-                {
-                    driveForce -= reverse * (1f - reverseDriveFactor);
-                }
-            }
-
-            // Clamp
-            if (maxForcePerSail > 0f)
-            {
-                rigForce = Vector3.ClampMagnitude(rigForce, maxForcePerSail);
-                driveForce = Vector3.ClampMagnitude(driveForce, maxForcePerSail);
-            }
-
-            // Force application point = center of mass of cloth
-            Vector3 forcePoint = ComputeSailCenter(sail);
-
-            sail.lastForce = driveForce;
-            sail.lastForcePoint = forcePoint;
-
-            if (applyForces && driveForce.sqrMagnitude > 0.0001f)
-            {
-                shipBody.AddForceAtPosition(driveForce, forcePoint, ForceMode.Force);
-
-                // Stress on mast should use full aerodynamic load, even when reverse drive is blocked.
-                if (sail.mastIndex >= 0 && sail.mastIndex < masts.Length)
-                {
-                    masts[sail.mastIndex].totalForceOnMast += rigForce;
-                    sail.lastMastMoment = ComputeMastMomentContribution(sail, rigForce);
-                    masts[sail.mastIndex].currentBendingMoment += sail.lastMastMoment;
-                }
-            }
-            else if (applyForces && rigForce.sqrMagnitude > 0.0001f)
-            {
-                // No hull propulsion, but still accumulate structural load.
-                if (sail.mastIndex >= 0 && sail.mastIndex < masts.Length)
-                {
-                    masts[sail.mastIndex].totalForceOnMast += rigForce;
-                    sail.lastMastMoment = ComputeMastMomentContribution(sail, rigForce);
-                    masts[sail.mastIndex].currentBendingMoment += sail.lastMastMoment;
-                }
-            }
+            ApplySailForcesCore(sail, trueWind, applyForces);
         }
 
         private Vector3 ComputeAggregateNormal(SailPanel sail)
         {
-            Vector3 normal = Vector3.zero;
-            int w = sail.gridWidth;
-            int h = sail.gridHeight;
-
-            for (int y = 0; y < h - 1; y++)
-            {
-                for (int x = 0; x < w - 1; x++)
-                {
-                    Vector3 p00 = sail.positions[sail.GetIndex(x, y)];
-                    Vector3 p10 = sail.positions[sail.GetIndex(x + 1, y)];
-                    Vector3 p01 = sail.positions[sail.GetIndex(x, y + 1)];
-                    normal += Vector3.Cross(p10 - p00, p01 - p00);
-                }
-            }
-
-            if (normal.sqrMagnitude < 0.0001f) return transform.forward;
-            return normal.normalized;
+            return ComputeAggregateNormalCore(sail);
         }
 
         private Vector3 ComputeSailCenter(SailPanel sail)
         {
-            Vector3 center = Vector3.zero;
-            int count = sail.ParticleCount;
-            for (int i = 0; i < count; i++)
-                center += sail.positions[i];
-            return center / count;
+            return ComputeSailCenterCore(sail);
         }
 
         #endregion
@@ -874,63 +789,22 @@ namespace RumOverboard.Gameplay.Ocean
 
         private void ComputeMastStrengths()
         {
-            if (masts == null) return;
-            for (int i = 0; i < masts.Length; i++)
-            {
-                if (masts[i] == null) continue;
-                var mast = masts[i];
-                // Section modulus of a solid circular cross-section: S = pi * r^3 / 4
-                // Max bending moment M = S * yield_strength
-                float r = mast.radius;
-                float sectionModulus = Mathf.PI * r * r * r / 4f;
-                mast.maxBendingMoment = sectionModulus * mast.yieldStrength;
-            }
+            ComputeMastStrengthsCore();
         }
 
         private void ResetMastForces()
         {
-            if (masts == null) return;
-            for (int i = 0; i < masts.Length; i++)
-            {
-                if (masts[i] == null) continue;
-                masts[i].totalForceOnMast = Vector3.zero;
-                masts[i].currentBendingMoment = 0f;
-            }
+            ResetMastForcesCore();
         }
 
         private float ComputeMastMomentContribution(SailPanel sail, Vector3 force)
         {
-            if (sail.mastIndex < 0 || sail.mastIndex >= masts.Length) return 0f;
-            var mast = masts[sail.mastIndex];
-
-            // Lever arm = height at which sail force is applied
-            Vector3 mastBase = transform.TransformPoint(mast.baseLocal);
-            Vector3 mastTop = transform.TransformPoint(mast.topLocal);
-            Vector3 mastAxis = (mastTop - mastBase).normalized;
-            float mastLength = (mastTop - mastBase).magnitude;
-
-            // Force application height along mast
-            float leverArm = mastLength * sail.mastAttachHeight;
-
-            // Only lateral force components create bending moment
-            Vector3 lateralForce = force - mastAxis * Vector3.Dot(force, mastAxis);
-            float moment = lateralForce.magnitude * leverArm;
-
-            return moment;
+            return ComputeMastMomentContributionCore(sail, force);
         }
 
         private void ComputeMastStress()
         {
-            if (masts == null) return;
-            for (int i = 0; i < masts.Length; i++)
-            {
-                if (masts[i] == null) continue;
-                var mast = masts[i];
-                if (mast.maxBendingMoment > 0f)
-                    mast.stressRatio = mast.currentBendingMoment / mast.maxBendingMoment;
-                else
-                    mast.stressRatio = 0f;
-            }
+            ComputeMastStressCore();
         }
 
         #endregion
@@ -1763,11 +1637,13 @@ namespace RumOverboard.Gameplay.Ocean
 
             Transform[] all = GetComponentsInChildren<Transform>(true);
 
-            // Pass 1: exact name match on real visual objects.
+            // Pass 1: exact active match on real visual objects.
             for (int i = 0; i < all.Length; i++)
             {
                 Transform t = all[i];
                 if (t == null || t == transform)
+                    continue;
+                if (!t.gameObject.activeInHierarchy)
                     continue;
                 if (t.name.StartsWith("Sail_", StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -1778,7 +1654,37 @@ namespace RumOverboard.Gameplay.Ocean
                     return t;
             }
 
-            // Pass 2: loose contains match as fallback.
+            // Pass 2: active loose contains fallback.
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform t = all[i];
+                if (t == null || t == transform)
+                    continue;
+                if (!t.gameObject.activeInHierarchy)
+                    continue;
+                if (t.name.StartsWith("Sail_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (IsGameplayHelperNodeName(t.name))
+                    continue;
+                if (t.name.IndexOf(nameOrHint, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return t;
+            }
+
+            // Pass 3: exact inactive fallback for legacy prefabs.
+            for (int i = 0; i < all.Length; i++)
+            {
+                Transform t = all[i];
+                if (t == null || t == transform)
+                    continue;
+                if (t.name.StartsWith("Sail_", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (IsGameplayHelperNodeName(t.name))
+                    continue;
+                if (string.Equals(t.name, nameOrHint, StringComparison.OrdinalIgnoreCase))
+                    return t;
+            }
+
+            // Pass 4: loose inactive fallback.
             for (int i = 0; i < all.Length; i++)
             {
                 Transform t = all[i];

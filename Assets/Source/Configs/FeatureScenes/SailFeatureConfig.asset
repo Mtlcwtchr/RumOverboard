@@ -1,0 +1,59 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4d3a772e4612d4cbeb4402394b99300a, type: 3}
+  m_Name: SailFeatureConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.FeatureScenes.Sails.SailFeatureConfig
+  waveStrength: 1
+  waveSpeed: 1
+  currentSpeed: 1
+  windEnabled: 1
+  windDirection: 35
+  windBaseStrength: 12
+  windGustStrength: 4
+  windGustFrequency: 0.12
+  windTurbulenceStrength: 1.5
+  windTurbulenceScale: 0.05
+  airDensity: 1.225
+  sailForceScale: 1
+  maxForcePerSail: 6000
+  liftFactor: 1.1
+  dragFactor: 1
+  sideForceFactor: 0.6
+  reverseDriveFactor: 0.12
+  verticalForceFactor: 0.08
+  blockReverseDriveFromHeadwind: 1
+  showWaterSurface: 1
+  masts:
+  - mastName: Fore
+    rigType: 1
+    localPosition: {x: 0, y: 0, z: 3.6}
+    yawDegrees: 0
+    mastHeight: 9.5
+    mastRadius: 0.2
+    areaScale: 1
+    yieldStrength: 40000000
+  - mastName: Main
+    rigType: 1
+    localPosition: {x: 0, y: 0, z: -0.6}
+    yawDegrees: 0
+    mastHeight: 10.8
+    mastRadius: 0.2
+    areaScale: 1
+    yieldStrength: 40000000
+  - mastName: Mizzen
+    rigType: 2
+    localPosition: {x: 0, y: 0, z: -4.2}
+    yawDegrees: 0
+    mastHeight: 8.2
+    mastRadius: 0.2
+    areaScale: 1
+    yieldStrength: 40000000

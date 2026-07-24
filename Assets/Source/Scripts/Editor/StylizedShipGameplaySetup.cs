@@ -1,4 +1,4 @@
-using RumOverboard.Gameplay;
+using RumOverboard.Core.Character;
 using RumOverboard.Gameplay.Ocean;
 using Source.Scripts.Gameplay;
 using UnityEditor;

@@ -28,7 +28,8 @@ namespace RumOverboard.EditorTools
     /// </summary>
     public static class ShipNetworkingSetup
     {
-        private const string ShipPrefabPath = "Assets/Source/Prefabs/NetworkShip.prefab";
+        private const string TargetShipPrefabPath = "Assets/Source/Prefabs/NetworkShip.prefab";
+        private const string SourceShipReferencePrefabPath = "Assets/Source/Prefabs/NetworkShip_Reference.prefab";
         private const string Menu = "RumOverboard/Networking/Setup Ship Networking";
         private const string RebuildVisualMenu = "RumOverboard/Networking/Rebuild NetworkShip Visual Colliders + Sail Anchors";
         private const string VisualShipName = "VisualShip";
@@ -47,7 +48,7 @@ namespace RumOverboard.EditorTools
             {
                 if (EditorPrefs.GetBool(key, false))
                     return;
-                if (AssetDatabase.LoadAssetAtPath<GameObject>(ShipPrefabPath) == null)
+                if (AssetDatabase.LoadAssetAtPath<GameObject>(TargetShipPrefabPath) == null)
                     return; // prefab not imported yet — retry on the next domain reload
                 if (Setup(out string summary))
                 {
@@ -58,10 +59,10 @@ namespace RumOverboard.EditorTools
         }
 
         [MenuItem(Menu, true)]
-        private static bool Validate() => AssetDatabase.LoadAssetAtPath<GameObject>(ShipPrefabPath) != null;
+        private static bool Validate() => AssetDatabase.LoadAssetAtPath<GameObject>(TargetShipPrefabPath) != null;
 
         [MenuItem(RebuildVisualMenu, true)]
-        private static bool ValidateRebuildVisual() => AssetDatabase.LoadAssetAtPath<GameObject>(ShipPrefabPath) != null;
+        private static bool ValidateRebuildVisual() => AssetDatabase.LoadAssetAtPath<GameObject>(TargetShipPrefabPath) != null;
 
         [MenuItem(Menu)]
         private static void SetupFromMenu()
@@ -92,16 +93,20 @@ namespace RumOverboard.EditorTools
         /// </summary>
         public static bool Setup(out string summary)
         {
-            GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(ShipPrefabPath);
+            GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(TargetShipPrefabPath);
+            bool hasReference = AssetDatabase.LoadAssetAtPath<GameObject>(SourceShipReferencePrefabPath) != null;
             if (asset == null)
             {
-                summary = $"Ship prefab not found at '{ShipPrefabPath}'.";
+                summary = $"Ship prefab not found at '{TargetShipPrefabPath}'.";
                 Debug.LogError($"[ShipNetworkingSetup] {summary}");
                 return false;
             }
 
+            if (!hasReference)
+                Debug.LogWarning($"[ShipNetworkingSetup] Backup reference prefab was not found at '{SourceShipReferencePrefabPath}'. Setup will still run on target '{TargetShipPrefabPath}'.");
+
             // Edit the prefab asset in isolation (safe for prefab-asset mutation from code).
-            GameObject root = PrefabUtility.LoadPrefabContents(ShipPrefabPath);
+            GameObject root = PrefabUtility.LoadPrefabContents(TargetShipPrefabPath);
             bool changed = false;
             var log = new System.Text.StringBuilder();
 
@@ -170,36 +175,36 @@ namespace RumOverboard.EditorTools
                     log.AppendLine("• added NetworkRigidbody3D");
                 }
 
-                // 5) Ensure sail system exists on the ship root.
-                if (!root.TryGetComponent(out ShipSailSystem sailSystem))
+                // 5) Ensure sails aggregator exists on the ship root.
+                if (!root.TryGetComponent(out ShipSailsAggregator sailsAggregator))
                 {
-                    sailSystem = root.AddComponent<ShipSailSystem>();
+                    sailsAggregator = root.AddComponent<ShipSailsAggregator>();
                     changed = true;
-                    log.AppendLine("• added ShipSailSystem");
+                    log.AppendLine("• added ShipSailsAggregator");
                 }
 
-                // Keep sail system bound to the same Rigidbody the ship uses.
-                var sailSo = new SerializedObject(sailSystem);
+                // Keep sails aggregator bound to the same Rigidbody the ship uses.
+                var sailSo = new SerializedObject(sailsAggregator);
                 var sailBodyProp = sailSo.FindProperty("shipBody");
                 if (sailBodyProp != null && sailBodyProp.objectReferenceValue != rb)
                 {
                     sailBodyProp.objectReferenceValue = rb;
                     sailSo.ApplyModifiedPropertiesWithoutUndo();
                     changed = true;
-                    log.AppendLine("• ShipSailSystem.shipBody wired");
+                    log.AppendLine("• ShipSailsAggregator.shipBody wired");
                 }
 
-                // 6) Wire NetworkShip reference to sail system so it's visible in inspector.
+                // 6) Wire NetworkShip reference to sails aggregator so it's visible in inspector.
                 if (root.TryGetComponent(out NetworkShip networkShip))
                 {
                     var netSo = new SerializedObject(networkShip);
-                    var sailRef = netSo.FindProperty("sailSystem");
-                    if (sailRef != null && sailRef.objectReferenceValue != sailSystem)
+                    var sailRef = netSo.FindProperty("sailsAggregator");
+                    if (sailRef != null && sailRef.objectReferenceValue != sailsAggregator)
                     {
-                        sailRef.objectReferenceValue = sailSystem;
+                        sailRef.objectReferenceValue = sailsAggregator;
                         netSo.ApplyModifiedPropertiesWithoutUndo();
                         changed = true;
-                        log.AppendLine("• NetworkShip.sailSystem wired");
+                        log.AppendLine("• NetworkShip.sailsAggregator wired");
                     }
                 }
 
@@ -220,13 +225,6 @@ namespace RumOverboard.EditorTools
                     {
                         changed = true;
                         log.AppendLine($"• visual colliders kept + interactive helpers synced ({colliderOps} ops)");
-                    }
-
-                    if (sailSystem != null)
-                    {
-                        sailSystem.SyncAnchorPointsFromCurrentShipVisual(syncMasts: true, rebuildSails: true);
-                        changed = true;
-                        log.AppendLine("• sail anchor points synced from NetworkShip visual");
                     }
 
                     if (WireHelm(helm, root.transform, visualRoot, log))
@@ -251,7 +249,7 @@ namespace RumOverboard.EditorTools
                 }
 
                 if (changed)
-                    PrefabUtility.SaveAsPrefabAsset(root, ShipPrefabPath);
+                    PrefabUtility.SaveAsPrefabAsset(root, TargetShipPrefabPath);
             }
             finally
             {
@@ -264,8 +262,8 @@ namespace RumOverboard.EditorTools
             NetworkProjectConfigUtilities.RebuildPrefabTable();
 
             summary = changed
-                ? $"Ship networking set up on '{ShipPrefabPath}':\n{log}\nPrefab re-baked and table rebuilt."
-                : $"Ship networking already correct on '{ShipPrefabPath}' — no changes. Table rebuilt.";
+                ? $"Ship networking set up on '{TargetShipPrefabPath}':\n{log}\nPrefab re-baked and table rebuilt."
+                : $"Ship networking already correct on '{TargetShipPrefabPath}' — no changes. Table rebuilt.";
             return true;
         }
 
@@ -466,14 +464,14 @@ namespace RumOverboard.EditorTools
         /// </summary>
         public static bool RebuildVisualCollidersAndSails(out string summary)
         {
-            GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(ShipPrefabPath);
+            GameObject asset = AssetDatabase.LoadAssetAtPath<GameObject>(TargetShipPrefabPath);
             if (asset == null)
             {
-                summary = $"Ship prefab not found at '{ShipPrefabPath}'.";
+                summary = $"Ship prefab not found at '{TargetShipPrefabPath}'.";
                 return false;
             }
 
-            GameObject root = PrefabUtility.LoadPrefabContents(ShipPrefabPath);
+            GameObject root = PrefabUtility.LoadPrefabContents(TargetShipPrefabPath);
             bool changed = false;
             var log = new System.Text.StringBuilder();
 
@@ -493,19 +491,20 @@ namespace RumOverboard.EditorTools
                     log.AppendLine($"• visual colliders kept + interactive helpers synced ({colliderOps} ops)");
                 }
 
-                if (root.TryGetComponent(out ShipSailSystem sailSystem) && sailSystem != null)
+                // Re-discover ShipMast children and refresh the aggregator.
+                if (root.TryGetComponent(out ShipSailsAggregator sails2) && sails2 != null)
                 {
-                    sailSystem.SyncAnchorPointsFromCurrentShipVisual(syncMasts: true, rebuildSails: true);
+                    sails2.RefreshMasts();
                     changed = true;
-                    log.AppendLine("• sail anchor points synced from current NetworkShip Visual");
+                    log.AppendLine("• sails aggregator refreshed masts from visual hierarchy");
                 }
                 else
                 {
-                    log.AppendLine("• ShipSailSystem not found on root");
+                    log.AppendLine("• ShipSailsAggregator not found on root");
                 }
 
                 if (changed)
-                    PrefabUtility.SaveAsPrefabAsset(root, ShipPrefabPath);
+                    PrefabUtility.SaveAsPrefabAsset(root, TargetShipPrefabPath);
             }
             finally
             {
@@ -527,16 +526,24 @@ namespace RumOverboard.EditorTools
                 return null;
 
             Transform exact = root.Find(VisualShipName);
-            if (exact != null)
+            if (exact != null && exact.gameObject.activeInHierarchy)
                 return exact;
+
+            Transform activeByName = null;
 
             foreach (Transform t in root.GetComponentsInChildren<Transform>(true))
             {
-                if (t != null && t.name == VisualShipName)
+                if (t == null || t.name != VisualShipName)
+                    continue;
+
+                if (t.gameObject.activeInHierarchy)
                     return t;
+
+                if (activeByName == null)
+                    activeByName = t;
             }
 
-            return null;
+            return exact != null ? exact : activeByName;
         }
 
         private static int EnsureInteractiveVisualColliders(Transform visualRoot)

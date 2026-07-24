@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6fba06de38c3b4f59b7e9f493a14b5e5, type: 3}
+  m_Name: HullFeatureConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.FeatureScenes.HullFeatureConfig
+  waveStrength: 1
+  waveSpeed: 1
+  currentSpeed: 1
+  currentDirectionOffset: 0
+  windEnabled: 1
+  windDirection: 35
+  windBaseStrength: 12
+  windGustStrength: 4
+  windGustFrequency: 0.12
+  windTurbulenceStrength: 1.5
+  windTurbulenceScale: 0.05
+  buoyancyForce: 30
+  verticalDamping: 10
+  longitudinalDrag: 2
+  lateralDrag: 12
+  angularDrag: 2.2
+  currentRelativeDrag: 2.5
+  rollStability: 28
+  pitchStability: 22
+  showSurface: 0
+  drawHullForces: 1

@@ -1,5 +1,6 @@
 #if FUSION2
 using Fusion;
+using RumOverboard.Gameplay.Ocean.Simulation;
 using UnityEngine;
 
 namespace RumOverboard.Gameplay.Ocean
@@ -147,6 +148,20 @@ namespace RumOverboard.Gameplay.Ocean
                 _pendingSteer = Mathf.Clamp(steer, -1f, 1f);
         }
 
+        private ShipHelmDynamicsSettings BuildDynamicsSettings()
+        {
+            return new ShipHelmDynamicsSettings(
+                maxWheelDegrees,
+                wheelTurnRate,
+                maxRudderAngle,
+                rudderResponse,
+                rudderYawCoefficient,
+                waveWheelDisturbance,
+                waveRudderBuffet,
+                unmannedCentering,
+                invertSteering);
+        }
+
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority || _rb == null)
@@ -163,30 +178,19 @@ namespace RumOverboard.Gameplay.Ocean
             float forwardFlow = Vector3.Dot(flow, -transform.forward); // >0 when making way ahead
             float lateralFlow = Vector3.Dot(flow, transform.right);     // sideways buffeting
 
-            bool manned = IsOccupied;
-            float steer = manned ? _pendingSteer : 0f;
+            var stepInput = new ShipHelmDynamicsInput(
+                dt,
+                WheelAngle,
+                RudderAngle,
+                _pendingSteer,
+                IsOccupied,
+                forwardFlow,
+                lateralFlow);
 
-            // Turn the wheel from the helmsman; an unmanned wheel is spun by the sea and trails to centre.
-            float wheel = WheelAngle + steer * wheelTurnRate * dt;
-            if (!manned)
-            {
-                wheel += lateralFlow * waveWheelDisturbance * dt;
-                wheel -= Mathf.Sign(wheel) * Mathf.Abs(forwardFlow) * unmannedCentering * dt;
-            }
-            WheelAngle = Mathf.Clamp(wheel, -maxWheelDegrees, maxWheelDegrees);
-
-            // Rudder follows the wheel; while manned, the sea only buffets it a little.
-            float targetRudder = WheelNormalized * maxRudderAngle;
-            if (manned)
-                targetRudder += lateralFlow * waveRudderBuffet;
-            targetRudder = Mathf.Clamp(targetRudder, -maxRudderAngle * 1.5f, maxRudderAngle * 1.5f);
-            RudderAngle = Mathf.MoveTowards(RudderAngle, targetRudder, rudderResponse * maxRudderAngle * dt);
-
-            // Hydrofoil yaw: side force ∝ flow speed × sin(deflection). No way on ⇒ no steering.
-            float yaw = rudderYawCoefficient * forwardFlow * Mathf.Sin(RudderAngle * Mathf.Deg2Rad);
-            if (invertSteering)
-                yaw = -yaw;
-            _rb.AddTorque(Vector3.up * yaw, ForceMode.Force);
+            ShipHelmDynamicsResult step = ShipHelmDynamicsSolver.Step(stepInput, BuildDynamicsSettings());
+            WheelAngle = step.WheelAngle;
+            RudderAngle = step.RudderAngle;
+            _rb.AddTorque(Vector3.up * step.YawTorque, ForceMode.Force);
 
             _pendingSteer = 0f;
         }

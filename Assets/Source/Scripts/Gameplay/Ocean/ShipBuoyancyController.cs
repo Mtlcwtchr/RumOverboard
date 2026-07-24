@@ -1,4 +1,5 @@
 using System;
+using RumOverboard.Gameplay.Ocean.Simulation;
 using UnityEngine;
 
 namespace RumOverboard.Gameplay.Ocean
@@ -168,6 +169,113 @@ namespace RumOverboard.Gameplay.Ocean
             set => maxWindForce = Mathf.Max(0f, value);
         }
 
+        public float BuoyancyForce
+        {
+            get => buoyancyForce;
+            set => buoyancyForce = Mathf.Max(0f, value);
+        }
+
+        public float VerticalDamping
+        {
+            get => verticalDamping;
+            set => verticalDamping = Mathf.Max(0f, value);
+        }
+
+        public float LongitudinalDrag
+        {
+            get => longitudinalDrag;
+            set => longitudinalDrag = Mathf.Max(0f, value);
+        }
+
+        public float LateralDrag
+        {
+            get => lateralDrag;
+            set => lateralDrag = Mathf.Max(0f, value);
+        }
+
+        public float AngularDragCoefficient
+        {
+            get => angularDrag;
+            set => angularDrag = Mathf.Max(0f, value);
+        }
+
+        public float CurrentRelativeDrag
+        {
+            get => currentRelativeDrag;
+            set => currentRelativeDrag = Mathf.Max(0f, value);
+        }
+
+        public float RollStability
+        {
+            get => rollStability;
+            set => rollStability = Mathf.Max(0f, value);
+        }
+
+        public float PitchStability
+        {
+            get => pitchStability;
+            set => pitchStability = Mathf.Max(0f, value);
+        }
+
+        public bool DebugDrawAlways
+        {
+            get => debugDrawAlways;
+            set => debugDrawAlways = value;
+        }
+
+        public bool DebugDrawForces
+        {
+            get => debugDrawForces;
+            set => debugDrawForces = value;
+        }
+
+        public bool DebugDrawResultants
+        {
+            get => debugDrawResultants;
+            set => debugDrawResultants = value;
+        }
+
+        public bool DebugDrawNormals
+        {
+            get => debugDrawNormals;
+            set => debugDrawNormals = value;
+        }
+
+        public int LastSubmergedPoints => _lastSubmergedPoints;
+        public Vector3 LastResultantForce => _lastResultantForce;
+        public Vector3 LastResultantTorque => _lastResultantTorque;
+        public Vector3 LastAverageSurfaceNormal => _lastAverageSurfaceNormal;
+
+        public int PointCount => points != null ? points.Length : 0;
+
+        public Vector3 GetLastPointWorld(int pointIndex)
+        {
+            if (_lastWorldPoints == null || pointIndex < 0 || pointIndex >= _lastWorldPoints.Length)
+                return transform.position;
+            return _lastWorldPoints[pointIndex];
+        }
+
+        public Vector3 GetLastPointForce(int pointIndex)
+        {
+            if (_lastForces == null || pointIndex < 0 || pointIndex >= _lastForces.Length)
+                return Vector3.zero;
+            return _lastForces[pointIndex];
+        }
+
+        public Vector3 GetLastPointSurfaceNormal(int pointIndex)
+        {
+            if (_lastSurfaceNormals == null || pointIndex < 0 || pointIndex >= _lastSurfaceNormals.Length)
+                return Vector3.up;
+            return _lastSurfaceNormals[pointIndex];
+        }
+
+        public float GetLastPointSubmergence(int pointIndex)
+        {
+            if (_lastSubmergence == null || pointIndex < 0 || pointIndex >= _lastSubmergence.Length)
+                return 0f;
+            return _lastSubmergence[pointIndex];
+        }
+
         public float RollDegrees => NormalizeSigned(transform.eulerAngles.z);
         public float PitchDegrees => NormalizeSigned(transform.eulerAngles.x);
 
@@ -309,32 +417,29 @@ namespace RumOverboard.Gameplay.Ocean
                 Vector3 relativeVelocity = pointVelocity - sample.waterVelocity;
                 _lastSubmergence[i] = submergence;
 
-                Vector3 buoyDir = Vector3.Slerp(up, sample.surfaceNormal, 0.45f).normalized;
-                float buoyancyN = effBuoyancy * point.buoyancy * buoyancyMul * submergence;
-                Vector3 buoyancyComponent = buoyDir * buoyancyN;
+                var forceInput = new ShipBuoyancyPointForceInput(
+                    up,
+                    fwd,
+                    right,
+                    sample.surfaceNormal,
+                    relativeVelocity,
+                    submergence,
+                    effBuoyancy,
+                    point.buoyancy,
+                    buoyancyMul,
+                    Mathf.Max(0f, point.damping),
+                    verticalDamping,
+                    lateralDrag,
+                    longitudinalDrag,
+                    currentRelativeDrag,
+                    dragMul,
+                    massScale,
+                    effMaxForcePerPoint);
 
-                float pointDamping = Mathf.Max(0f, point.damping);
-                Vector3 vertical = Vector3.Project(relativeVelocity, up);
-                Vector3 lateral = Vector3.Project(relativeVelocity, right);
-                Vector3 longitudinal = Vector3.Project(relativeVelocity, fwd);
-                Vector3 relativeToCurrent = relativeVelocity;
-
-                Vector3 dampingComponent = Vector3.zero;
-                dampingComponent += -vertical * (verticalDamping * pointDamping * dragMul * submergence);
-                dampingComponent += -lateral * (lateralDrag * dragMul * submergence);
-                dampingComponent += -longitudinal * (longitudinalDrag * dragMul * submergence);
-                dampingComponent += -relativeToCurrent * (currentRelativeDrag * dragMul * submergence * 0.25f);
-                dampingComponent *= massScale; // heavier hull → proportionally stronger damping
-
-                Vector3 force = buoyancyComponent + dampingComponent;
-
-                if (force.magnitude > effMaxForcePerPoint)
-                {
-                    float scale = effMaxForcePerPoint / Mathf.Max(0.0001f, force.magnitude);
-                    buoyancyComponent *= scale;
-                    dampingComponent *= scale;
-                    force *= scale;
-                }
+                ShipBuoyancyPointForceResult forceResult = ShipBuoyancyPointForceSolver.Solve(forceInput);
+                Vector3 force = forceResult.TotalForce;
+                Vector3 buoyancyComponent = forceResult.BuoyancyForce;
+                Vector3 dampingComponent = forceResult.DampingForce;
 
                 rb.AddForceAtPosition(force, worldPoint, ForceMode.Force);
                 _lastForces[i] = force;
@@ -405,13 +510,15 @@ namespace RumOverboard.Gameplay.Ocean
             if (windVelocity.sqrMagnitude < 0.0001f)
                 return;
 
-            Vector3 relativeWind = windVelocity - rb.linearVelocity;
-            Vector3 longitudinal = Vector3.Project(relativeWind, transform.forward) * windLongitudinalFactor;
-            Vector3 lateral = Vector3.Project(relativeWind, transform.right) * windLateralFactor;
-
-            Vector3 windForce = (longitudinal + lateral) * windHullForceCoefficient;
-            if (maxWindForce > 0f)
-                windForce = Vector3.ClampMagnitude(windForce, maxWindForce);
+            Vector3 windForce = ShipHullWindForceSolver.Solve(new ShipHullWindForceInput(
+                windVelocity,
+                rb.linearVelocity,
+                transform.forward,
+                transform.right,
+                windLongitudinalFactor,
+                windLateralFactor,
+                windHullForceCoefficient,
+                maxWindForce));
 
             if (windForce.sqrMagnitude < 0.0001f)
                 return;
@@ -448,32 +555,20 @@ namespace RumOverboard.Gameplay.Ocean
             if (rb == null || _lastSubmergedPoints <= 0)
                 return Vector3.zero;
 
-            Vector3 desiredUp = Vector3.Slerp(
-                Vector3.up,
-                averageSurfaceNormal.sqrMagnitude > 0.0001f ? averageSurfaceNormal.normalized : Vector3.up,
-                Mathf.Clamp01(surfaceNormalInfluence));
-
-            Vector3 correctionAxisWorld = Vector3.Cross(transform.up, desiredUp);
-            Vector3 correctionAxisLocal = transform.InverseTransformDirection(correctionAxisWorld);
-            Vector3 localAngularVelocity = transform.InverseTransformDirection(rb.angularVelocity);
-
-            Vector3 localTorque = Vector3.zero;
-            localTorque.x = correctionAxisLocal.x * pitchStability - localAngularVelocity.x * pitchDamping;
-            localTorque.z = correctionAxisLocal.z * rollStability - localAngularVelocity.z * rollDamping;
-
-            Vector3 worldTorque = transform.TransformDirection(localTorque);
-
-            float upsideDown = Mathf.Clamp01(-Vector3.Dot(transform.up, desiredUp));
-            if (upsideDown > 0.0001f)
-            {
-                Vector3 recoveryAxis = correctionAxisWorld.sqrMagnitude > 0.0001f
-                    ? correctionAxisWorld.normalized
-                    : transform.right;
-                worldTorque += recoveryAxis * (upsideDown * inversionRecoveryTorque);
-            }
-
-            float maxTorque = Mathf.Max(0.01f, maxStabilityTorque) * Mathf.Max(0.25f, dragMul);
-            return Vector3.ClampMagnitude(worldTorque, maxTorque);
+            return ShipStabilityTorqueSolver.Solve(new ShipStabilityTorqueInput(
+                transform.rotation,
+                transform.up,
+                transform.right,
+                rb.angularVelocity,
+                averageSurfaceNormal,
+                surfaceNormalInfluence,
+                pitchStability,
+                rollStability,
+                pitchDamping,
+                rollDamping,
+                inversionRecoveryTorque,
+                maxStabilityTorque,
+                dragMul));
         }
 
         public Vector3 GetApparentForceAtDeckPoint(Vector3 worldPoint)

@@ -6,9 +6,10 @@ namespace RumOverboard.EditorTools
 {
     public class SailRuntimeDebugWindowEditor : EditorWindow
     {
-        private const string NetworkShipPrefabPath = "Assets/Source/Prefabs/NetworkShip.prefab";
+        private const string TargetNetworkShipPrefabPath = "Assets/Source/Prefabs/NetworkShip.prefab";
+        private const string SourceNetworkShipReferencePrefabPath = "Assets/Source/Prefabs/NetworkShip_Reference.prefab";
 
-        private ShipSailSystem _sailSystem;
+        private ShipSailsAggregator _sailsAggregator;
         private Vector2 _scroll;
         private readonly OceanDebugGizmos.MiniMap _map = new OceanDebugGizmos.MiniMap();
 
@@ -22,8 +23,8 @@ namespace RumOverboard.EditorTools
 
         private void OnFocus()
         {
-            if (_sailSystem == null)
-                _sailSystem = FindSailSystem();
+            if (_sailsAggregator == null)
+                _sailsAggregator = FindAggregator();
         }
 
         private void OnGUI()
@@ -33,29 +34,14 @@ namespace RumOverboard.EditorTools
 
             using (new EditorGUILayout.HorizontalScope())
             {
-                _sailSystem = (ShipSailSystem)EditorGUILayout.ObjectField("Sail System", _sailSystem, typeof(ShipSailSystem), true);
+                _sailsAggregator = (ShipSailsAggregator)EditorGUILayout.ObjectField("Sails Aggregator", _sailsAggregator, typeof(ShipSailsAggregator), true);
                 if (GUILayout.Button("Find", GUILayout.Width(70f)))
-                    _sailSystem = FindSailSystem();
+                    _sailsAggregator = FindAggregator();
             }
 
-            if (_sailSystem == null)
+            if (_sailsAggregator == null)
             {
-                EditorGUILayout.HelpBox("ShipSailSystem не найден. Добавь компонент на корень сетевого корабля или запусти сцену, чтобы NetworkShip добавил его автоматически.", MessageType.Warning);
-#if FUSION2
-                if (GUILayout.Button("Setup NetworkShip Prefab (Sails)", GUILayout.Height(26f)))
-                {
-                    if (ShipNetworkingSetup.Setup(out string summary))
-                    {
-                        Debug.Log($"[SailRuntimeDebugWindowEditor] {summary}");
-                        AssetDatabase.Refresh();
-                        _sailSystem = FindSailSystem();
-                    }
-                    else
-                    {
-                        Debug.LogError($"[SailRuntimeDebugWindowEditor] {summary}");
-                    }
-                }
-#endif
+                EditorGUILayout.HelpBox("ShipSailsAggregator не найден. Добавь компонент на корень сетевого корабля или запусти сцену.", MessageType.Warning);
                 return;
             }
 
@@ -70,69 +56,70 @@ namespace RumOverboard.EditorTools
 
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("Global Aerodynamics", EditorStyles.boldLabel);
-            _sailSystem.AirDensity = EditorGUILayout.Slider("Air Density", _sailSystem.AirDensity, 0f, 2f);
-            _sailSystem.SailForceScale = EditorGUILayout.Slider("Force Scale", _sailSystem.SailForceScale, 0f, 3f);
-            _sailSystem.MaxForcePerSail = EditorGUILayout.Slider("Max Force / Sail", _sailSystem.MaxForcePerSail, 0f, 8000f);
-            _sailSystem.LiftFactor = EditorGUILayout.Slider("Lift Factor", _sailSystem.LiftFactor, 0f, 2f);
-            _sailSystem.DragFactor = EditorGUILayout.Slider("Drag Factor", _sailSystem.DragFactor, 0f, 2f);
-            _sailSystem.SideForceFactor = EditorGUILayout.Slider("Side Force Factor", _sailSystem.SideForceFactor, 0f, 1f);
-            _sailSystem.ReverseDriveFactor = EditorGUILayout.Slider("Reverse Drive Factor", _sailSystem.ReverseDriveFactor, 0f, 1f);
-            _sailSystem.VerticalForceFactor = EditorGUILayout.Slider("Vertical Force Factor", _sailSystem.VerticalForceFactor, 0f, 1f);
+            _sailsAggregator.AirDensity = EditorGUILayout.Slider("Air Density", _sailsAggregator.AirDensity, 0f, 2f);
+            _sailsAggregator.SailForceScale = EditorGUILayout.Slider("Force Scale", _sailsAggregator.SailForceScale, 0f, 3f);
+            _sailsAggregator.MaxForcePerSail = EditorGUILayout.Slider("Max Force / Sail", _sailsAggregator.MaxForcePerSail, 0f, 8000f);
+            _sailsAggregator.LiftFactor = EditorGUILayout.Slider("Lift Factor", _sailsAggregator.LiftFactor, 0f, 2f);
+            _sailsAggregator.DragFactor = EditorGUILayout.Slider("Drag Factor", _sailsAggregator.DragFactor, 0f, 2f);
+            _sailsAggregator.SideForceFactor = EditorGUILayout.Slider("Side Force Factor", _sailsAggregator.SideForceFactor, 0f, 1f);
+            _sailsAggregator.ReverseDriveFactor = EditorGUILayout.Slider("Reverse Drive Factor", _sailsAggregator.ReverseDriveFactor, 0f, 1f);
+            _sailsAggregator.VerticalForceFactor = EditorGUILayout.Slider("Vertical Force Factor", _sailsAggregator.VerticalForceFactor, 0f, 1f);
 
             EditorGUILayout.Space(6f);
             EditorGUILayout.LabelField("Debug", EditorStyles.boldLabel);
-            _sailSystem.DebugDrawRopes = EditorGUILayout.Toggle("Debug Ropes", _sailSystem.DebugDrawRopes);
-            _sailSystem.DebugDrawForces = EditorGUILayout.Toggle("Debug Forces", _sailSystem.DebugDrawForces);
+            _sailsAggregator.DebugDrawRopes = EditorGUILayout.Toggle("Debug Ropes", _sailsAggregator.DebugDrawRopes);
+            _sailsAggregator.DebugDrawForces = EditorGUILayout.Toggle("Debug Forces", _sailsAggregator.DebugDrawForces);
 
             EditorGUILayout.Space(10f);
             EditorGUILayout.LabelField("Mast Stress", EditorStyles.boldLabel);
-            int mastCount = _sailSystem.MastCount;
+            int mastCount = _sailsAggregator.MastCount;
             for (int i = 0; i < mastCount; i++)
             {
-                float stress = _sailSystem.GetMastStressRatio(i);
-                float moment = _sailSystem.GetMastBendingMoment(i);
-                float maxMoment = _sailSystem.GetMastMaxBendingMoment(i);
-                Vector3 force = _sailSystem.GetMastForce(i);
+                var mast = _sailsAggregator.GetMast(i);
+                if (mast == null) continue;
+
+                float stress = mast.StressRatio;
+                float moment = mast.CurrentBendingMoment;
+                float maxMoment = mast.MaxBendingMoment;
+                Vector3 force = mast.TotalForceOnMast;
 
                 Color prevColor = GUI.color;
                 GUI.color = Color.Lerp(Color.white, Color.red, Mathf.Clamp01(stress));
                 EditorGUILayout.BeginVertical(GUI.skin.box);
                 GUI.color = prevColor;
 
-                EditorGUILayout.LabelField($"Mast {i}: Stress {stress * 100f:0.0}%");
+                string mastName = mast.Mast != null ? mast.Mast.name : $"Mast {i}";
+                EditorGUILayout.LabelField($"{mastName}: Stress {stress * 100f:0.0}%");
                 EditorGUILayout.LabelField($"  Moment: {moment:0.0} / {maxMoment:0.0} N·m");
                 EditorGUILayout.LabelField($"  Force: {force.magnitude:0.0} N ({force.x:0.0}, {force.y:0.0}, {force.z:0.0})");
-                EditorGUILayout.EndVertical();
-            }
 
-            EditorGUILayout.Space(10f);
-            EditorGUILayout.LabelField("Per-sail Control", EditorStyles.boldLabel);
+                // Per-sail controls inside this mast
+                for (int s = 0; s < mast.SailCount; s++)
+                {
+                    EditorGUILayout.BeginVertical(GUI.skin.box);
+                    string sailName = mast.GetSailName(s);
+                    EditorGUILayout.LabelField($"  {sailName}", EditorStyles.boldLabel);
 
-            int count = _sailSystem.SailCount;
-            for (int i = 0; i < count; i++)
-            {
-                EditorGUILayout.BeginVertical(GUI.skin.box);
+                    bool enabled = EditorGUILayout.Toggle("Enabled", mast.GetSailEnabled(s));
+                    mast.SetSailEnabled(s, enabled);
 
-                string sailName = _sailSystem.GetSailName(i);
-                EditorGUILayout.LabelField($"{i + 1}. {sailName}", EditorStyles.boldLabel);
+                    float hoist = EditorGUILayout.Slider("Hoist", mast.GetHoist(s), 0f, 1f);
+                    mast.SetHoist(s, hoist);
 
-                bool enabled = EditorGUILayout.Toggle("Enabled", _sailSystem.GetSailEnabled(i));
-                _sailSystem.SetSailEnabled(i, enabled);
+                    float extension = EditorGUILayout.Slider("Extension", mast.GetExtension(s), 0f, 1f);
+                    mast.SetExtension(s, extension);
 
-                float hoist = EditorGUILayout.Slider("Hoist", _sailSystem.GetHoist(i), 0f, 1f);
-                _sailSystem.SetHoist(i, hoist);
+                    float sheet = EditorGUILayout.Slider("Sheet Angle", mast.GetSheetAngle(s), -85f, 85f);
+                    mast.SetSheetAngle(s, sheet);
 
-                float extension = EditorGUILayout.Slider("Extension", _sailSystem.GetExtension(i), 0f, 1f);
-                _sailSystem.SetExtension(i, extension);
+                    float damage = EditorGUILayout.Slider("Damage", mast.GetDamage(s), 0f, 1f);
+                    mast.SetDamage(s, damage);
 
-                float sheet = EditorGUILayout.Slider("Sheet Angle", _sailSystem.GetSheetAngle(i), -85f, 85f);
-                _sailSystem.SetSheetAngle(i, sheet);
+                    float area = mast.GetEffectiveArea(s);
+                    EditorGUILayout.LabelField($"Effective Area: {area:0.00} m2");
 
-                float damage = EditorGUILayout.Slider("Damage", _sailSystem.GetDamage(i), 0f, 1f);
-                _sailSystem.SetDamage(i, damage);
-
-                float area = _sailSystem.GetEffectiveArea(i);
-                EditorGUILayout.LabelField($"Effective Area: {area:0.00} m2");
+                    EditorGUILayout.EndVertical();
+                }
 
                 EditorGUILayout.EndVertical();
                 EditorGUILayout.Space(4f);
@@ -152,34 +139,33 @@ namespace RumOverboard.EditorTools
             }
 
             if (EditorGUI.EndChangeCheck())
-                EditorUtility.SetDirty(_sailSystem);
+                EditorUtility.SetDirty(_sailsAggregator);
         }
 
-        // Top-down thrust diagram: per-sail force arrows, net thrust, wind, and ship heading.
         private void DrawThrustMap()
         {
             _map.Clear();
             _map.hasShip = true;
-            _map.shipHeadingDeg = _sailSystem.transform.eulerAngles.y;
+            _map.shipHeadingDeg = _sailsAggregator.transform.eulerAngles.y;
 
-            float maxF = Mathf.Max(1f, _sailSystem.MaxForcePerSail);
-            int count = _sailSystem.SailCount;
+            float maxF = Mathf.Max(1f, _sailsAggregator.MaxForcePerSail);
+            int count = _sailsAggregator.SailCount;
             for (int i = 0; i < count; i++)
             {
-                if (!_sailSystem.GetSailEnabled(i))
+                if (!_sailsAggregator.GetSailEnabled(i))
                     continue;
-                Vector3 f = _sailSystem.GetSailForce(i);
+                Vector3 f = _sailsAggregator.GetSailForce(i);
                 if (f.sqrMagnitude < 1e-4f)
                     continue;
                 _map.Add(null, new Vector2(f.x, f.z), Mathf.Clamp01(f.magnitude / maxF), new Color(0.4f, 1f, 0.45f, 0.55f));
             }
 
-            Vector3 total = _sailSystem.TotalThrust;
+            Vector3 total = _sailsAggregator.TotalThrust;
             if (total.sqrMagnitude > 1e-4f)
                 _map.Add($"Thrust {total.magnitude:0} N", new Vector2(total.x, total.z),
                     Mathf.Clamp01(total.magnitude / (maxF * Mathf.Max(1, count))), OceanDebugGizmos.ThrustColor);
 
-            var wind = _sailSystem.WindSystem;
+            var wind = _sailsAggregator.WindSystem;
             if (wind != null && wind.WindEnabled)
             {
                 Vector3 w = wind.DirectionVector;
@@ -192,33 +178,37 @@ namespace RumOverboard.EditorTools
 
         private void ApplySailPreset(float hoist, float extension, float absSheetAngle, float damage)
         {
-            if (_sailSystem == null)
-                return;
+            if (_sailsAggregator == null) return;
 
-            Undo.RecordObject(_sailSystem, "Apply Sail Preset");
-            int count = _sailSystem.SailCount;
+            Undo.RecordObject(_sailsAggregator, "Apply Sail Preset");
+            int count = _sailsAggregator.SailCount;
             for (int i = 0; i < count; i++)
             {
-                _sailSystem.SetSailEnabled(i, true);
-                _sailSystem.SetHoist(i, hoist);
-                _sailSystem.SetExtension(i, extension);
+                _sailsAggregator.SetSailEnabled(i, true);
+                _sailsAggregator.SetHoist(i, hoist);
+                _sailsAggregator.SetExtension(i, extension);
                 float sign = i % 2 == 0 ? -1f : 1f;
-                _sailSystem.SetSheetAngle(i, absSheetAngle * sign);
-                _sailSystem.SetDamage(i, damage);
+                _sailsAggregator.SetSheetAngle(i, absSheetAngle * sign);
+                _sailsAggregator.SetDamage(i, damage);
             }
 
-            EditorUtility.SetDirty(_sailSystem);
+            EditorUtility.SetDirty(_sailsAggregator);
         }
 
-        private static ShipSailSystem FindSailSystem()
+        private static ShipSailsAggregator FindAggregator()
         {
-            ShipSailSystem inScene = FindAnyObjectByType<ShipSailSystem>();
-            if (inScene != null)
-                return inScene;
+            ShipSailsAggregator inScene = FindAnyObjectByType<ShipSailsAggregator>();
+            if (inScene != null) return inScene;
 
-            GameObject prefab = AssetDatabase.LoadAssetAtPath<GameObject>(NetworkShipPrefabPath);
-            return prefab != null ? prefab.GetComponent<ShipSailSystem>() : null;
+            GameObject targetPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(TargetNetworkShipPrefabPath);
+            if (targetPrefab != null)
+            {
+                ShipSailsAggregator a = targetPrefab.GetComponent<ShipSailsAggregator>();
+                if (a != null) return a;
+            }
+
+            GameObject refPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SourceNetworkShipReferencePrefabPath);
+            return refPrefab != null ? refPrefab.GetComponent<ShipSailsAggregator>() : null;
         }
     }
 }
-

@@ -1,9 +1,11 @@
 #if FUSION2
 using System.Collections.Generic;
 using Fusion;
+using RumOverboard.Core.Character;
+using RumOverboard.Core.Interaction;
 using RumOverboard.Core;
 using RumOverboard.Gameplay;
-using RumOverboard.Gameplay.States;
+using RumOverboard.Core.Character.States;
 using RumOverboard.StateMachine;
 using RumOverboard.StateMachine.Serialization;
 using Source.Scripts.Gameplay;
@@ -80,7 +82,7 @@ namespace RumOverboard.Networking
         public bool IsKnockedOut => State.RagdollControl >= 0.9f;
 
         [Header("Sensors")]
-        [SerializeField] private float groundProbe = 0.15f;
+        [SerializeField] private float groundProbe = 0.25f;
         [SerializeField] private LayerMask groundMask = ~0;
         [SerializeField] private LayerMask climbMask;
         [SerializeField] private float climbReach = 0.7f;
@@ -111,12 +113,10 @@ namespace RumOverboard.Networking
         private StateContext _ctx;
         private readonly HashSet<Collider> _waterTriggers = new();
         private readonly byte[] _payloadScratch = new byte[PayloadCapacity];
-        private readonly Collider[] _climbHits = new Collider[4];
-        private readonly RaycastHit[] _interactionHits = new RaycastHit[8];
+        private ClimbProbeService _climbProbe;
+        private SphereInteractionProbe _interactionProbe;
         private RumOverboard.Gameplay.Ocean.ShipHelm _nearbyHelm; // helm within reach this tick
-        private RumOverboard.Gameplay.Ocean.ShipHelm _activeHelm; // helm we currently occupy (host)
-        private bool _pinnedToHelm;      // body is kinematic + hard-pinned to the wheel this tick
-        private bool _preSteerKinematic; // kinematic state to restore when leaving the helm
+        private RumOverboard.Gameplay.Ocean.HelmOccupancyController _helmController;
         private float _smoothedAnimatorSpeed;
         private byte _lastPayloadVersion;
         private bool _networkRigidbody; // prefab uses the Physics addon (NetworkRigidbody3D) → predict
@@ -203,6 +203,9 @@ namespace RumOverboard.Networking
             }
 
             _machine = PlayerStateMachineFactory.Build();
+            _climbProbe = new ClimbProbeService(4);
+            _interactionProbe = new SphereInteractionProbe(8);
+            _helmController = new RumOverboard.Gameplay.Ocean.HelmOccupancyController(_rb);
             _ctx = new StateContext
             {
                 Body = _rb,
@@ -261,7 +264,7 @@ namespace RumOverboard.Networking
             // a setup problem (report once) — skip the tick rather than fight it. EXCEPTION: while
             // steering we deliberately make the body kinematic and pin it to the helm, so let the
             // tick run (the machine must still see the leave-helm input, and pinning must update).
-            if (_rb.isKinematic && !_pinnedToHelm && !_machine.IsActive(PlayerState.Steering))
+            if (_rb.isKinematic && !(_helmController != null && _helmController.IsPinnedToHelm) && !_machine.IsActive(PlayerState.Steering))
             {
                 if (!_warnedKinematic)
                 {
@@ -344,7 +347,8 @@ namespace RumOverboard.Networking
                             (!_nearbyHelm.IsOccupied || _nearbyHelm.Occupant == Object.InputAuthority);
             _ctx.NearHelm = helmFree;
 
-            var helm = _activeHelm != null ? _activeHelm : _nearbyHelm;
+            RumOverboard.Gameplay.Ocean.ShipHelm activeHelm = _helmController != null ? _helmController.ActiveHelm : null;
+            var helm = activeHelm != null ? activeHelm : _nearbyHelm;
             _ctx.HasSteerAnchor = helm != null;
             if (helm != null)
             {
@@ -370,44 +374,21 @@ namespace RumOverboard.Networking
 
         private bool ProbeGround()
         {
-            Vector3 origin = transform.position + Vector3.up * 0.1f;
-            if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, groundProbe + 0.1f,
-                    groundMask, QueryTriggerInteraction.Ignore))
-            {
-                // If we're standing on the moving ship, carry its velocity at our feet (linear +
-                // rotational) so locomotion rides the deck instead of sliding off.
-                Rigidbody groundBody = hit.collider.attachedRigidbody;
-                _ctx.GroundVelocity = (groundBody != null && groundBody != _rb)
-                    ? groundBody.GetPointVelocity(hit.point)
-                    : Vector3.zero;
-                _ctx.GroundNormal = hit.normal;
-                return true;
-            }
-
-            _ctx.GroundVelocity = Vector3.zero;
-            _ctx.GroundNormal = Vector3.up;
-            return false;
+            GroundProbeResult result = GroundProbeService.Probe(transform, _rb, groundProbe, groundMask);
+            _ctx.GroundVelocity = result.GroundVelocity;
+            _ctx.GroundNormal = result.GroundNormal;
+            return result.IsGrounded;
         }
 
         private bool ProbeClimb()
         {
-            int count = Physics.OverlapSphereNonAlloc(
-                transform.position + Vector3.up,
-                climbReach,
-                _climbHits,
-                climbMask,
-                QueryTriggerInteraction.Collide);
+            if (_climbProbe == null)
+                _climbProbe = new ClimbProbeService(4);
 
-            if (count == 0)
-            {
-                _ctx.ClimbTargetId = 0;
-                return false;
-            }
-
-            Transform climb = _climbHits[0].transform;
-            _ctx.ClimbTargetId = climb.GetInstanceID();
-            _ctx.ClimbPoint = climb.InverseTransformPoint(transform.position);
-            return true;
+            ClimbProbeResult result = _climbProbe.Probe(transform, climbReach, climbMask);
+            _ctx.ClimbTargetId = result.TargetId;
+            _ctx.ClimbPoint = result.LocalPoint;
+            return result.NearClimb;
         }
 
         // View-based interaction probe used both by simulation (authoritative checks) and local HUD.
@@ -420,35 +401,14 @@ namespace RumOverboard.Networking
 
             Vector3 origin = CameraAnchor.position;
             Vector3 dir = Quaternion.Euler(lookPitch, lookYaw, 0f) * Vector3.forward;
-            float radius = Mathf.Max(0f, interactionProbeRadius);
 
-            int count = Physics.SphereCastNonAlloc(
-                origin,
-                radius,
-                dir,
-                _interactionHits,
-                helmReach,
-                helmMask,
-                QueryTriggerInteraction.Collide);
+            if (_interactionProbe == null)
+                _interactionProbe = new SphereInteractionProbe(8);
 
-            float nearest = float.MaxValue;
-            ShipInteractionZone best = null;
-            for (int i = 0; i < count; i++)
-            {
-                RaycastHit hit = _interactionHits[i];
-                Collider col = hit.collider;
-                if (col == null || col.transform.IsChildOf(transform))
-                    continue;
+            if (!_interactionProbe.TryProbe(origin, dir, interactionProbeRadius, helmReach, helmMask, transform, out RaycastHit hit))
+                return false;
 
-                ShipInteractionZone candidate = col.GetComponentInParent<ShipInteractionZone>();
-                if (candidate == null || hit.distance >= nearest)
-                    continue;
-
-                nearest = hit.distance;
-                best = candidate;
-            }
-
-            zone = best;
+            zone = hit.collider != null ? hit.collider.GetComponentInParent<ShipInteractionZone>() : null;
             if (zone == null)
                 return false;
 
@@ -488,22 +448,13 @@ namespace RumOverboard.Networking
         // from ctx so the predicted body locks to the wheel.
         private void HandleHelm(NetworkInputData input)
         {
-            if (!HasStateAuthority)
-                return;
-
             bool steering = _machine.IsActive(PlayerState.Steering);
-            if (steering)
-            {
-                if (_activeHelm == null && _nearbyHelm != null && _nearbyHelm.TryOccupy(Object.InputAuthority))
-                    _activeHelm = _nearbyHelm;
-
-                _activeHelm?.SubmitSteer(input.Move.x); // A/D
-            }
-            else if (_activeHelm != null)
-            {
-                _activeHelm.Release(Object.InputAuthority);
-                _activeHelm = null;
-            }
+            _helmController?.SyncAuthorityOccupancy(
+                HasStateAuthority,
+                steering,
+                _nearbyHelm,
+                Object.InputAuthority,
+                input.Move.x);
         }
 
         // Nails the crew member to the helm so they ride the ship: while steering the body goes
@@ -511,23 +462,11 @@ namespace RumOverboard.Networking
         // tick — no waves, gravity, or deck collisions can throw it overboard. Restored on release.
         private void ApplyHelmPinning(bool steering)
         {
-            if (steering && _ctx.HasSteerAnchor)
-            {
-                if (!_pinnedToHelm)
-                {
-                    _pinnedToHelm = true;
-                    _preSteerKinematic = _rb.isKinematic;
-                    _rb.isKinematic = true;
-                }
-
-                _rb.position = _ctx.SteerAnchorPosition;
-                _rb.rotation = Quaternion.Euler(0f, _ctx.SteerAnchorYaw, 0f);
-            }
-            else if (_pinnedToHelm)
-            {
-                _pinnedToHelm = false;
-                _rb.isKinematic = _preSteerKinematic;
-            }
+            _helmController?.ApplyPinning(
+                steering,
+                _ctx.HasSteerAnchor,
+                _ctx.SteerAnchorPosition,
+                _ctx.SteerAnchorYaw);
         }
 
         private void PublishPayload(ref PlayerNetState s)

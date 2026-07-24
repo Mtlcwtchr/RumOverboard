@@ -31,7 +31,8 @@ namespace RumOverboard.Networking
     {
         [SerializeField] private ShipBuoyancyController buoyancy;
         [SerializeField] private OceanWaveField waveField;
-        [SerializeField] private ShipSailSystem sailSystem;
+        [SerializeField] private ShipSailsAggregator sailsAggregator;
+        [SerializeField] private ShipFeatureAggregator featureAggregator;
 
         [Header("Ocean time correction (proxies)")]
         [SerializeField] private float oceanTimeCorrectionThreshold = 0.1f;
@@ -43,6 +44,7 @@ namespace RumOverboard.Networking
 
         private Rigidbody _rb;
         private bool _hasNetworkRigidbody;
+        private ShipRuntime _shipRuntime;
 
         /// <summary>Latest wave-impact strength, valid on every peer (deck FX / camera shake).</summary>
         public float NetworkedImpactStrength => LastImpactStrength;
@@ -54,13 +56,20 @@ namespace RumOverboard.Networking
                 buoyancy = GetComponent<ShipBuoyancyController>();
             if (waveField == null)
                 waveField = FindAnyObjectByType<OceanWaveField>();
-            if (sailSystem == null)
-                sailSystem = GetComponent<ShipSailSystem>();
-            if (sailSystem == null)
-                sailSystem = gameObject.AddComponent<ShipSailSystem>();
+            if (sailsAggregator == null)
+                sailsAggregator = GetComponent<ShipSailsAggregator>();
+            if (sailsAggregator == null)
+                sailsAggregator = gameObject.AddComponent<ShipSailsAggregator>();
 
-            if (sailSystem != null && sailSystem.WindSystem == null)
-                sailSystem.WindSystem = FindAnyObjectByType<OceanWindSystem>();
+            if (sailsAggregator != null && sailsAggregator.WindSystem == null)
+                sailsAggregator.WindSystem = FindAnyObjectByType<OceanWindSystem>();
+
+            if (featureAggregator == null)
+                featureAggregator = GetComponent<ShipFeatureAggregator>();
+            if (featureAggregator != null)
+                featureAggregator.Bind(waveField, sailsAggregator != null ? sailsAggregator.WindSystem : FindAnyObjectByType<OceanWindSystem>());
+
+            _shipRuntime = new ShipRuntime(buoyancy, sailsAggregator, waveField, _rb);
 
             // Cosmetic bow/wake foam on every peer (derives speed from the synced transform).
             if (GetComponent<ShipWakeFoam>() == null)
@@ -75,22 +84,7 @@ namespace RumOverboard.Networking
                                "ship prefab and re-bake the NetworkObject (see SETUP_MULTIPLAYER.md).");
             }
 
-            if (buoyancy != null)
-            {
-                buoyancy.ConfigureReferences(waveField, _rb);
-                if (HasStateAuthority)
-                {
-                    // Drive buoyancy from FixedUpdateNetwork (inside Fusion's physics tick), not from
-                    // Unity's FixedUpdate — deterministic timing with the Physics addon.
-                    buoyancy.SetExternallyDriven(true);
-                    buoyancy.enabled = true;
-                }
-                else
-                {
-                    // Proxies are kinematic (driven by NetworkRigidbody3D) and ride the snapshot.
-                    buoyancy.enabled = false;
-                }
-            }
+            _shipRuntime?.Configure(HasStateAuthority);
 
             if (HasStateAuthority && waveField != null)
                 OceanTime = waveField.OceanTimeNow;
@@ -105,18 +99,15 @@ namespace RumOverboard.Networking
 
                 // Step buoyancy inside the network tick so PhysX (stepped by the Fusion addon)
                 // sees the forces on the same tick and resimulation stays deterministic.
-                if (buoyancy != null && waveField != null)
-                {
-                    buoyancy.Step(Runner.DeltaTime, waveField.OceanTimeNow);
-                    LastImpactStrength = buoyancy.LastImpactStrength;
-                }
+                LastImpactStrength = (_shipRuntime != null && waveField != null)
+                    ? _shipRuntime.StepAuthority(Runner.DeltaTime, waveField.OceanTimeNow, Runner.SimulationTime)
+                    : 0f;
 
                 return;
             }
 
             // Proxy: buoyancy stays off; nudge the local ocean clock toward the authority's.
-            if (buoyancy != null && buoyancy.enabled)
-                buoyancy.enabled = false;
+            _shipRuntime?.EnsureProxyState();
 
             if (waveField != null)
             {
