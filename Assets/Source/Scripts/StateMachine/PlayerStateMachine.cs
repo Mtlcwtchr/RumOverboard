@@ -77,6 +77,21 @@ namespace RumOverboard.StateMachine
                     kv.Value.Render(ctx);
         }
 
+        /// <summary>Host: force a state off outside the transition table (e.g. a lost occupancy race).</summary>
+        public void Deactivate(PlayerState state, StateContext ctx)
+        {
+            if ((Active & state) != 0)
+                SetActive(Active & ~state, ctx);
+        }
+
+        /// <summary>Host: force a state on (clearing incompatible ones), e.g. a respawn reset.</summary>
+        public void ForceActivate(PlayerState state, StateContext ctx)
+        {
+            PlayerState next = Activate(state, Active);
+            if (next != Active)
+                SetActive(next, ctx);
+        }
+
         /// <summary>Client: adopt the replicated mask, firing Enter/Exit for cosmetics.</summary>
         public void SetActiveFromNetwork(PlayerState mask, StateContext ctx)
         {

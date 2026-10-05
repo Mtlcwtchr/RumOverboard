@@ -1,55 +1,59 @@
 #if FUSION2
+using Fusion;
+using RumOverboard.Gameplay.Interaction;
+using RumOverboard.Gameplay.UI;
 using RumOverboard.Networking;
-using Source.Scripts.Gameplay;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 namespace RumOverboard.Gameplay
 {
     /// <summary>
-    /// The local crew member's camera. Lives on the gameplay Main Camera and follows
-    /// whichever NetworkPlayer has input authority (registered by NetworkPlayer.Spawned).
+    /// The local crew member's camera + view-ray focus.
     ///
-    ///   • Normal play  → first-person, PEAK-style: the camera sits at the head anchor
-    ///     and mouse-look drives yaw/pitch. ConnectionManager.OnInput reads this camera's
-    ///     yaw, so movement stays relative to where you look.
-    ///   • Knocked out  → when the ragdoll takes over (RagdollControl ≈ 1) the view pulls
-    ///     back into a third-person orbit around the limp body, so you can watch the flop.
-    ///
-    /// Yaw persists across the switch, so regaining control doesn't snap your heading.
+    ///   • Position: the head of the RENDERED (interpolated) body, so the view sits on exactly the
+    ///     same timeline as the deck it stands on — no extra smoothing lag, no shimmer.
+    ///   • Rotation: mouse look applied immediately (never waits for the host). Yaw is kept
+    ///     RELATIVE to the ship the player is aboard (<see cref="NetworkPlayer.Platform"/>), so
+    ///     when the ship turns you turn with it; pitch is horizon-relative.
+    ///   • Focus: after the camera is placed, a view ray picks the interactable under the crosshair;
+    ///     the hint overlay shows it and <see cref="ConnectionManager"/> sends it to the host.
+    ///   • Knocked out → third-person orbit around the limp body.
     /// </summary>
     [RequireComponent(typeof(Camera))]
     public sealed class PlayerCameraRig : MonoBehaviour
     {
         public static PlayerCameraRig Instance { get; private set; }
 
-        [Header("First-person")]
-        [Tooltip("Smoothing for the first-person camera position (higher = snappier, 0 = raw). Removes per-tick head jitter from the physics/networked body.")]
-        [SerializeField] private float positionSharpness = 20f;
-
         [Header("Mouse look")]
         [SerializeField] private float sensitivity = 0.12f;
+        [SerializeField] private float gamepadSensitivity = 160f;
         [SerializeField] private float minPitch = -80f;
         [SerializeField] private float maxPitch = 80f;
         [SerializeField] private bool lockCursor = true;
 
         [Header("Third-person (knockout)")]
-        [Tooltip("How far back the camera orbits when the crew member is knocked out.")]
         [SerializeField] private float knockoutDistance = 3.5f;
         [SerializeField] private float knockoutHeight = 1.2f;
-        [Tooltip("Position smoothing for the third-person orbit (higher = snappier).")]
         [SerializeField] private float followSharpness = 8f;
 
-        [Header("Interaction hint")]
+        [Header("Hints")]
         [SerializeField] private bool showInteractionHints = true;
 
         private NetworkPlayer _target;
-        private GameplayHud _hud;
-        private float _yaw;
+        private float _relYaw;      // yaw relative to _space (or world yaw when _space is none)
         private float _pitch;
+        private NetworkId _space;   // NetworkObject our yaw is relative to
+        private Interactable _focus;
+        private InteractableRef _focusRef;
 
-        public float Yaw => _yaw;
+        /// <summary>Yaw as sent to the host (relative to <see cref="LookSpace"/>).</summary>
+        public float Yaw => _relYaw;
         public float Pitch => _pitch;
+        public NetworkId LookSpace => _space;
+        public InteractableRef FocusRef => _focusRef;
+        public Interactable Focus => _focus;
+        public NetworkPlayer Target => _target;
 
         private void Awake()
         {
@@ -69,67 +73,99 @@ namespace RumOverboard.Gameplay
         public void SetTarget(NetworkPlayer target)
         {
             _target = target;
-            if (_hud == null) _hud = FindAnyObjectByType<GameplayHud>();
-            Transform t = target.transform;
-            _yaw = t.eulerAngles.y;
+            _space = default;
+            _relYaw = target.transform.eulerAngles.y;
             _pitch = 0f;
-            if (target.CameraAnchor != null)
-                transform.position = target.CameraAnchor.position; // snap so smoothing doesn't glide in
+            transform.position = target.RenderEyePosition;
             ApplyCursorLock(true);
+            HintOverlay.Ensure().SetVisible(true);
         }
 
         public void ClearTarget(NetworkPlayer target)
         {
-            if (_target == target) _target = null;
-            if (_hud == null) _hud = FindAnyObjectByType<GameplayHud>();
-            _hud?.SetInteractionHint(null);
+            if (_target != target) return;
+            _target.SetHeadHidden(false);
+            _target = null;
+            _focus = null;
+            _focusRef = default;
             ApplyCursorLock(false);
+            if (HintOverlay.Instance != null)
+                HintOverlay.Instance.SetVisible(false);
+        }
+
+        private void Update()
+        {
+            // Escape frees the cursor (menus / alt-tab); clicking back into the game re-locks it.
+            var kb = Keyboard.current;
+            if (kb != null && kb.escapeKey.wasPressedThisFrame)
+                ApplyCursorLock(false);
+            var mouse = Mouse.current;
+            if (_target != null && mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
+                ApplyCursorLock(true);
         }
 
         private void LateUpdate()
         {
-            if (_target == null)
-            {
-                if (_hud == null) _hud = FindAnyObjectByType<GameplayHud>();
-                _hud?.SetInteractionHint(null);
+            if (_target == null || _target.Object == null || !_target.Object.IsValid)
                 return;
+
+            SyncLookSpace();
+            AccumulateLook();
+
+            float worldYaw = _relYaw + SpaceYaw(_space);
+            bool thirdPerson = _target.IsKnockedOut;
+            _target.SetHeadHidden(!thirdPerson);
+            if (thirdPerson)
+                UpdateThirdPerson(worldYaw);
+            else
+            {
+                transform.position = _target.GetFirstPersonEye(worldYaw);
+                transform.rotation = Quaternion.Euler(_pitch, worldYaw, 0f);
             }
 
-            AccumulateMouseLook();
-
-            if (_target.IsKnockedOut)
-                UpdateThirdPerson();
-            else
-                UpdateFirstPerson();
-
-            UpdateInteractionHint();
+            UpdateFocus();
         }
 
-        private void AccumulateMouseLook()
+        // The host tells us which ship we're aboard; when it changes, re-express our yaw in the
+        // new space so the view doesn't jump.
+        private void SyncLookSpace()
         {
-            Mouse mouse = Mouse.current;
-            if (mouse == null) return;
+            NetworkId platform = _target.Platform;
+            if (platform == _space)
+                return;
+            float world = _relYaw + SpaceYaw(_space);
+            _space = platform;
+            _relYaw = Mathf.DeltaAngle(0f, world - SpaceYaw(_space));
+        }
 
-            Vector2 delta = mouse.delta.ReadValue() * sensitivity;
-            _yaw += delta.x;
+        private float SpaceYaw(NetworkId space)
+        {
+            if (!space.IsValid || _target.Runner == null)
+                return 0f;
+            return _target.Runner.TryFindObject(space, out NetworkObject obj) && obj != null
+                ? obj.transform.eulerAngles.y
+                : 0f;
+        }
+
+        private void AccumulateLook()
+        {
+            if (Cursor.lockState != CursorLockMode.Locked && lockCursor)
+                return;
+
+            Vector2 delta = Vector2.zero;
+            if (Mouse.current != null)
+                delta += Mouse.current.delta.ReadValue() * sensitivity;
+            if (Gamepad.current != null)
+                delta += Gamepad.current.rightStick.ReadValue() * (gamepadSensitivity * Time.deltaTime);
+
+            _relYaw = Mathf.Repeat(_relYaw + delta.x + 180f, 360f) - 180f;
             _pitch = Mathf.Clamp(_pitch - delta.y, minPitch, maxPitch);
         }
 
-        private void UpdateFirstPerson()
+        private void UpdateThirdPerson(float worldYaw)
         {
-            Transform anchor = _target.CameraAnchor;
-            Vector3 target = anchor.position;
-            // Smooth out per-tick jitter of the head anchor (physics/network interpolation) so the
-            // view doesn't shake. High sharpness keeps it responsive.
-            float t = positionSharpness > 0f ? 1f - Mathf.Exp(-positionSharpness * Time.deltaTime) : 1f;
-            transform.position = Vector3.Lerp(transform.position, target, t);
-            transform.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
-        }
-
-        private void UpdateThirdPerson()
-        {
-            Quaternion look = Quaternion.Euler(Mathf.Max(_pitch, 5f), _yaw, 0f);
-            Vector3 pivot = _target.transform.position + Vector3.up * knockoutHeight;
+            Quaternion look = Quaternion.Euler(Mathf.Max(_pitch, 5f), worldYaw, 0f);
+            Vector3 pivot = _target.RenderPosition + Vector3.up * knockoutHeight;
             Vector3 desired = pivot - look * Vector3.forward * knockoutDistance;
 
             float t = 1f - Mathf.Exp(-followSharpness * Time.deltaTime);
@@ -137,55 +173,45 @@ namespace RumOverboard.Gameplay
             transform.rotation = Quaternion.LookRotation(pivot - transform.position, Vector3.up);
         }
 
+        private void UpdateFocus()
+        {
+            HintOverlay hints = HintOverlay.Ensure();
+            hints.SetState(_target.ActiveStates);
+            hints.SetDrunkenness(_target.Drunkenness);
+
+            _focus = null;
+            _focusRef = default;
+
+            // Attached (climbing / at the helm / on a rope): Interact means "let go", the controls
+            // panel already says so; don't show a competing look-at prompt.
+            if (_target.IsAttached || _target.IsKnockedOut)
+            {
+                hints.SetPrompt(null, false);
+                return;
+            }
+
+            // Make sure queries see the colliders where they're RENDERED this frame.
+            Physics.SyncTransforms();
+
+            if (_target.ProbeLocalTarget(transform.position, transform.forward, out Interactable focus, out _))
+            {
+                InteractorInfo me = _target.LocalInteractor;
+                bool available = focus.IsAvailable(me);
+                _focus = focus;
+                _focusRef = available ? focus.Ref : default;
+                hints.SetPrompt(showInteractionHints ? focus.GetPrompt(me) : null, available);
+            }
+            else
+            {
+                hints.SetPrompt(null, false);
+            }
+        }
+
         private void ApplyCursorLock(bool active)
         {
             if (!lockCursor) return;
             Cursor.lockState = active ? CursorLockMode.Locked : CursorLockMode.None;
             Cursor.visible = !active;
-        }
-
-        private void UpdateInteractionHint()
-        {
-            if (_hud == null) _hud = FindAnyObjectByType<GameplayHud>();
-            if (_hud == null)
-                return;
-
-            if (!showInteractionHints)
-            {
-                _hud.SetInteractionHint(null);
-                return;
-            }
-
-            if (_target.IsSteering)
-            {
-                _hud.SetInteractionHint("[|E| Отойти от штурвала]");
-                return;
-            }
-
-            if (!_target.TryGetInteractionTarget(_yaw, _pitch, out ShipInteractionZone zone, out Ocean.ShipHelm helm))
-            {
-                _hud.SetInteractionHint(null);
-                return;
-            }
-
-            string action = zone != null ? zone.Prompt : string.Empty;
-            if (zone != null && zone.Zone == ShipInteractionZone.ZoneKind.Helm)
-            {
-                bool occupiedByOther = helm != null && helm.IsOccupied && helm.Occupant != _target.Object.InputAuthority;
-                if (occupiedByOther)
-                {
-                    _hud.SetInteractionHint("Штурвал занят");
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(action) || action == "Steer" || action == "Take the wheel")
-                    action = "Встать за штурвал";
-            }
-
-            if (string.IsNullOrWhiteSpace(action))
-                action = "Взаимодействовать";
-
-            _hud.SetInteractionHint($"[|E| {action}]");
         }
     }
 }

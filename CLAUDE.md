@@ -11,6 +11,10 @@
 
 ## Прочее
 
+- Песочница корабля (host authority, лазание, штурвал, канаты, хинты): `RumOverboard ▸ Ship Sandbox ▸
+  ★ Build Everything`, сцена `Assets/Scenes/ShipSandbox.unity`. Архитектура и автотесты —
+  `Assets/Source/Docs/ShipSandbox.md`. Клиенты НЕ предсказывают физику — не возвращать prediction.
+
 - Инструмент авто-коллайдеров: меню `RumOverboard → Colliders` и ПКМ по модели в Hierarchy
   (`Assets/Source/Scripts/Editor/ColliderTools`).
 - Коммить/пушь только по явной просьбе.

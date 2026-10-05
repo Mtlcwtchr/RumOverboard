@@ -33,7 +33,7 @@ namespace RumOverboard.Gameplay.Ocean
                 BuildPool();
             else
                 _procedural = FoamParticleFactory.CreateFoamSystem(transform, "ImpactSplashFoam",
-                    new Color(0.96f, 0.98f, 1f, 0.95f), 0.9f, 1.1f);
+                    new Color(0.96f, 0.98f, 1f, 0.95f), 0.9f, 1.1f, gravity: 1f);
         }
 
         private void OnEnable()

@@ -7,9 +7,11 @@ namespace RumOverboard.Core.Character
         public readonly bool IsGrounded;
         public readonly Vector3 GroundNormal;
         public readonly Vector3 GroundVelocity;
+        public readonly Rigidbody Body;
 
-        public GroundProbeResult(bool isGrounded, Vector3 groundNormal, Vector3 groundVelocity)
+        public GroundProbeResult(bool isGrounded, Vector3 groundNormal, Vector3 groundVelocity, Rigidbody body = null)
         {
+            Body = body;
             IsGrounded = isGrounded;
             GroundNormal = groundNormal;
             GroundVelocity = groundVelocity;
@@ -23,10 +25,15 @@ namespace RumOverboard.Core.Character
     {
         public static GroundProbeResult Probe(Transform actor, Rigidbody actorBody, float probeDistance, LayerMask groundMask)
         {
-            Vector3 origin = actor.position + Vector3.up * 0.1f;
-            float castDistance = Mathf.Max(0.01f, probeDistance) + 0.1f;
+            // Sphere cast from inside the capsule's bottom so edges/steps/rope coils still count.
+            const float radius = 0.2f;
+            const float lift = 0.45f;
+            Vector3 origin = actor.position + Vector3.up * lift;
+            float castDistance = Mathf.Max(0.01f, probeDistance) + lift - radius;
 
-            if (!Physics.Raycast(origin, Vector3.down, out RaycastHit hit, castDistance, groundMask, QueryTriggerInteraction.Ignore))
+            if (!Physics.SphereCast(origin, radius, Vector3.down, out RaycastHit hit, castDistance, groundMask, QueryTriggerInteraction.Ignore))
+                return new GroundProbeResult(false, Vector3.up, Vector3.zero);
+            if (hit.normal.y < 0.35f) // a wall brushing the sphere is not ground
                 return new GroundProbeResult(false, Vector3.up, Vector3.zero);
 
             Rigidbody groundBody = hit.collider != null ? hit.collider.attachedRigidbody : null;
@@ -34,7 +41,7 @@ namespace RumOverboard.Core.Character
                 ? groundBody.GetPointVelocity(hit.point)
                 : Vector3.zero;
 
-            return new GroundProbeResult(true, hit.normal, groundVelocity);
+            return new GroundProbeResult(true, hit.normal, groundVelocity, groundBody);
         }
     }
 }

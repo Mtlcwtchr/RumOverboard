@@ -38,7 +38,19 @@ namespace RumOverboard.Gameplay
 
         public float Amount => _amount;
 
+        /// <summary>How many ragdolls are physical right now (clients step cosmetic physics only then).</summary>
+        public static int PhysicalCount { get; private set; }
+
         private void Awake() => Cache();
+
+        private void OnDestroy()
+        {
+            if (_physical) PhysicalCount--;
+            _physical = false;
+        }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics() => PhysicalCount = 0;
 
         private void Cache()
         {
@@ -80,6 +92,7 @@ namespace RumOverboard.Gameplay
             if (physical != _physical)
             {
                 _physical = physical;
+                PhysicalCount += physical ? 1 : -1;
                 ApplyPhysical(physical);
             }
         }

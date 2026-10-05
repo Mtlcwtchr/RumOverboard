@@ -34,6 +34,9 @@ namespace RumOverboard.Core
         [Tooltip("Units/sec^2 deceleration on ground when stopping/changing direction.")]
         public float GroundDeceleration = 55.0f;
 
+        [Tooltip("Speed multiplier while Sprint (Shift) is held on deck.")]
+        public float SprintMultiplier = 1.6f;
+
         public float ClimbSpeed = 2.5f;
         public float TurnSpeedDeg = 720f;
         public float JumpImpulse = 6f;

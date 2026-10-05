@@ -36,41 +36,21 @@ Project Settings ▸ Tags and Layers — добавь:
 
 ---
 
-## 2. Плавная репликация физики: интерполяция + client-side prediction
+## 2. Плавная репликация физики: чистый host authority (без предикции)
 
-Как это устроено в коде и что даёт Fusion:
+> Актуальная модель — см. `Assets/Source/Docs/ShipSandbox.md`. Ранее здесь описывалась
+> клиентская предикция локального игрока; она **убрана**: предсказанный игрок стоял на
+> интерполированном (отстающем) корабле — это и было дрожание.
 
-- **Интерполяция (уже работает, Fusion core).** `NetworkTransform` на префабе делает
-  snapshot-интерполяцию на прокси (чужих игроках) — они и так двигаются плавно. Send rate
-  сервера поднят до максимума в `NetworkProjectConfig` (`ServerSendIndex: 0` — снапшот каждый
-  тик), чтобы интерполяция была плотнее. `NetworkPlayer.Spawned` выключает Unity-интерполяцию
-  ригидбоди (`RigidbodyInterpolation.None`), чтобы она не конфликтовала с сетевой.
-- **Prediction (Fusion Physics addon — импортирован ✅).** Настоящая клиентская предикция
-  *динамического* Rigidbody (движение локального игрока без задержки RTT, с реконсиляцией) гоняет
-  PhysX внутри тиков Fusion и ресимулирует их. Аддон уже стоит (`Assets/Photon/FusionAddons/Physics`,
-  `Fusion.Addons.Physics` в `AssembliesToWeave`).
-
-  **Что уже засетаплено в коде:**
-  - `RunnerSimulatePhysics3D` вешается на объект раннера автоматически, **до** `StartGame`, в обоих
-    путях запуска: `FusionMenuConnectionBehaviourSdk.CreateRunner()` (menu-флоу) и
-    `ConnectionManager.StartGame()` (standalone). Настроен `ClientPhysicsSimulation = SimulateForward`
-    (клиенты симулируют PhysX на форвард-тиках → дешёвая клиентская предикция); авторитет физики
-    Fusion, тайминг `FixedUpdateNetwork` (дефолты аддона).
-  - `NetworkPlayer` **сам определяет** наличие `NetworkRigidbody3D` на префабе: если он есть —
-    симуляция (`FixedUpdateNetwork`) идёт и у локального input-authority (предикция включена,
-    kinematic-состоянием тела рулит `NetworkRigidbody3D`); если стоит обычный `NetworkTransform` —
-    остаётся хостовая авторитетная симуляция + интерполяция прокси. Ручных галок нет.
-
-  **Осталось сделать в редакторе (единственный шаг):** на префабе игрока заменить
-  `NetworkTransform` → **`NetworkRigidbody3D`** (аддон). Всё остальное подхватится само:
-  физика решается в `FixedUpdateNetwork` из серверных данных + предикция + реконсиляция.
-
-  ⚠️ Правка `FusionMenuConnectionBehaviourSdk.CreateRunner()` — в файле пакета Fusion Menu;
-  при переимпорте пакета её нужно вернуть (2 строки: `AddComponent<RunnerSimulatePhysics3D>()`
-  + `ClientPhysicsSimulation = SimulateForward`), плюс ссылка `Fusion.Addons.Physics` в
-  `Fusion.Menu.asmdef`.
-
----
+- Хост симулирует ВСЁ (корабль, игроков, станции) в `FixedUpdateNetwork`; PhysX шагает аддон
+  (`RunnerSimulatePhysics3D`, `ClientPhysicsSimulation = Disabled`).
+- Клиенты шлют только ввод (`NetworkInputData`: оси, взгляд относительно корабля, кнопки, цель
+  взаимодействия). Все сетевые тела у клиента — кинематические прокси, интерполируемые
+  `NetworkRigidbody3D` в ОДНОМ таймфрейме → игрок всегда согласован с палубой под ним.
+- `NetworkPlayer.Spawned` явно выводит локального игрока из клиентской симуляции
+  (`Runner.SetIsSimulated(Object, false)`) — Fusion по умолчанию включает туда объект с input authority.
+- Мышь применяется к камере локально и мгновенно; движение подтверждает хост (задержка = RTT).
+- Косметическая физика (регдолл) у клиента шагается в `ConnectionManager.Update` только пока регдолл активен.
 
 ## 3. Регдол на модели PolyOne
 

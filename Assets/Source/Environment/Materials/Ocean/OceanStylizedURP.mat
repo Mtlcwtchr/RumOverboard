@@ -54,7 +54,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailNormal:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 76bad7996abdf4c27a5c852b1a4028a4, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailNormalMap:
@@ -107,22 +107,27 @@ Material:
     - _BumpScale: 1
     - _ClearCoatMask: 0
     - _ClearCoatSmoothness: 0
-    - _CrestFoamThreshold: 0.62
+    - _CrestFoamThreshold: 0.58
+    - _CrestHeight: 1.4
+    - _CrestLift: 0.8
     - _Cull: 2
     - _Cutoff: 0.5
-    - _DepthFadeDistance: 6.38
+    - _DepthFadeDistance: 9
     - _DetailAlbedoMapScale: 1
     - _DetailFadeEnd: 230
     - _DetailFadeStart: 110
     - _DetailNormalMapScale: 1
-    - _DetailNormalScale: 0.591
-    - _DetailScroll: 0.04
-    - _DetailTiling: 0.15
+    - _DetailNormalScale: 0.55
+    - _DetailScroll: 0.035
+    - _DetailTiling: 0.075
     - _DstBlend: 0
     - _DstBlendAlpha: 0
     - _EnvironmentReflections: 1
-    - _FoamIntensity: 0.4
-    - _Gloss: 0.43
+    - _FoamIntensity: 0.55
+    - _FoamNoiseScale: 0.32
+    - _GlitterPower: 1100
+    - _GlitterStrength: 7
+    - _Gloss: 0.65
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
@@ -131,34 +136,35 @@ Material:
     - _Parallax: 0.005
     - _QueueOffset: 0
     - _ReceiveShadows: 1
-    - _ReflectionStrength: 0.4
-    - _RefractionStrength: 0.0407
-    - _RippleScale: 0.97
-    - _RippleSpeed: 1.06
-    - _Roughness: 0.12
+    - _ReflectionStrength: 0.7
+    - _RefractionStrength: 0.03
+    - _RippleScale: 1.6
+    - _RippleSpeed: 0.8
+    - _Roughness: 0.05
     - _SeaLevel: 0
     - _ShallowDepthMax: 4.28
     - _Smoothness: 0.5
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
-    - _SpecularPower: 14
+    - _SpecularPower: 140
     - _SrcBlend: 1
     - _SrcBlendAlpha: 1
-    - _SubsurfaceStrength: 0.85
+    - _SubsurfaceStrength: 1.1
     - _Surface: 0
-    - _TransparencyMax: 0.845
-    - _TransparencyMin: 0.465
+    - _TransparencyMax: 0.985
+    - _TransparencyMin: 0.62
     - _WorkflowMode: 1
     - _XRMotionVectorsPass: 1
     - _ZWrite: 1
     m_Colors:
     - _BaseColor: {r: 0.12, g: 0.43, b: 0.61, a: 0.9}
-    - _BaseColorDeep: {r: 0.049999982, g: 0.31999996, b: 0.54999995, a: 1}
-    - _BaseColorShallow: {r: 0.12999997, g: 0.62, b: 0.68, a: 1}
+    - _BaseColorDeep: {r: 0.012, g: 0.085, b: 0.15, a: 1}
+    - _BaseColorShallow: {r: 0.04, g: 0.3, b: 0.34, a: 1}
     - _Color: {r: 0.11999995, g: 0.42999998, b: 0.61, a: 0.9}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _FoamColor: {r: 0.88, g: 0.95, b: 1, a: 1}
+    - _FoamColor: {r: 0.92, g: 0.96, b: 1, a: 1}
+    - _HorizonColor: {r: 0.52, g: 0.64, b: 0.74, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
-    - _SubsurfaceColor: {r: 0.15999997, g: 0.65999997, b: 0.58, a: 1}
+    - _SubsurfaceColor: {r: 0.06, g: 0.5, b: 0.46, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1

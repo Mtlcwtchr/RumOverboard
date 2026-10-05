@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a0b1faf65dfc54b0a919ea20a42f70b1, type: 3}
+  m_Name: RiggingFeatureConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.Features.Rigging.RiggingConfig
+  HaulRate: 1.4
+  EaseRate: 1.8
+  WalkHaulRate: 1.6
+  LoadPull: 260
+  LeashStiffness: 12
+  RunRate: 3.5
+  RunRateLight: 0.25
+  EndGravity: 9.81
+  EndAirDamping: 0.6
+  EndBounce: 0.15
+  EndFriction: 0.6
+  EndRadius: 0.08
+  TieSlack: 0.6

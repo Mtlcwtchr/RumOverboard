@@ -209,6 +209,7 @@ namespace RumOverboard.Gameplay
             var t = go.GetComponent<Text>();
             t.font = font;
             t.text = text;
+            t.raycastTarget = false; // labels never eat clicks (only the Leave button is clickable)
             t.fontSize = 24;
             t.color = Color.white;
             t.alignment = align;

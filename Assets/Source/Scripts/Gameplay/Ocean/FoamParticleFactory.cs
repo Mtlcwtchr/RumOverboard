@@ -65,7 +65,7 @@ namespace RumOverboard.Gameplay.Ocean
         /// Creates a world-space, manually-emitted foam system (call ParticleSystem.Emit yourself):
         /// zero gravity/speed, soft alpha fade in/out, gentle growth over life.
         /// </summary>
-        public static ParticleSystem CreateFoamSystem(Transform parent, string systemName, Color color, float startSize, float lifetime, int maxParticles = 2000)
+        public static ParticleSystem CreateFoamSystem(Transform parent, string systemName, Color color, float startSize, float lifetime, int maxParticles = 2000, float gravity = 0f)
         {
             var go = new GameObject(systemName);
             go.transform.SetParent(parent, false);
@@ -79,7 +79,7 @@ namespace RumOverboard.Gameplay.Ocean
             main.startSpeed = 0f;
             main.startSize = startSize;
             main.startColor = color;
-            main.gravityModifier = 0f;
+            main.gravityModifier = gravity; // splashes fall back into the sea; surface foam floats (0)
             main.maxParticles = maxParticles;
             main.playOnAwake = false;
 

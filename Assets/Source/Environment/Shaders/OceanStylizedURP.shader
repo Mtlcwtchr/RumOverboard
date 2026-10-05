@@ -36,6 +36,13 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
         _DetailFadeEnd ("Detail Fade End", Float) = 230
 
         _SeaLevel ("Sea Level", Float) = 0
+        [Header(Realism)]
+        _GlitterPower ("Sun Glitter Power", Range(64,4096)) = 900
+        _GlitterStrength ("Sun Glitter Strength", Range(0,20)) = 6
+        _CrestLift ("Crest Colour Lift", Range(0,2)) = 0.6
+        _CrestHeight ("Crest Height Reference (m)", Float) = 1.5
+        _HorizonColor ("Horizon Tint", Color) = (0.55, 0.68, 0.78, 1)
+        _FoamNoiseScale ("Foam Noise Scale", Float) = 0.35
     }
 
     SubShader
@@ -101,6 +108,12 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
             float _SeaLevel;
             float _OceanTime;
             float _ShallowColorBoost;
+            float _GlitterPower;
+            float _GlitterStrength;
+            float _CrestLift;
+            float _CrestHeight;
+            float4 _HorizonColor;
+            float _FoamNoiseScale;
             int _WaveCount;
             CBUFFER_END
 
@@ -124,7 +137,34 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float3 worldNormal : TEXCOORD1;
                 float4 screenPos : TEXCOORD2;
                 float2 uv : TEXCOORD3;
+                float fogFactor : TEXCOORD4;
+                float waveHeight : TEXCOORD5;
             };
+
+            // Cheap value noise (2 octaves) for foam breakup — no texture needed.
+            float Hash21(float2 p)
+            {
+                p = frac(p * float2(123.34, 456.21));
+                p += dot(p, p + 45.32);
+                return frac(p.x * p.y);
+            }
+
+            float ValueNoise(float2 p)
+            {
+                float2 i = floor(p);
+                float2 f = frac(p);
+                float2 u = f * f * (3.0 - 2.0 * f);
+                float a = Hash21(i);
+                float b = Hash21(i + float2(1, 0));
+                float c = Hash21(i + float2(0, 1));
+                float d = Hash21(i + float2(1, 1));
+                return lerp(lerp(a, b, u.x), lerp(c, d, u.x), u.y);
+            }
+
+            float FoamNoise(float2 p)
+            {
+                return ValueNoise(p) * 0.65 + ValueNoise(p * 2.7 + 13.1) * 0.35;
+            }
 
             // Gerstner displacement on the GPU — same wave params (already baked with jitter/
             // choppiness/amplitude) the CPU physics uses, so the visible surface matches the
@@ -165,9 +205,12 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 // Waves fade to flat with distance so the huge far disk stays calm, single-colour and cheap.
                 float camDist = distance(worldPos.xz, _WorldSpaceCameraPos.xz);
                 float waveFade = 1.0 - smoothstep(_DetailFadeStart, _DetailFadeEnd, camDist);
-                worldPos += GerstnerDisplacement(worldPos.xz, waveFade);
+                float3 disp = GerstnerDisplacement(worldPos.xz, waveFade);
+                worldPos += disp;
 
                 o.positionCS = TransformWorldToHClip(worldPos);
+                o.fogFactor = ComputeFogFactor(o.positionCS.z);
+                o.waveHeight = disp.y;
                 o.worldPos = worldPos;
                 o.worldNormal = float3(0, 1, 0); // fragment rebuilds the normal from the wave slope
                 o.screenPos = ComputeScreenPos(o.positionCS);
@@ -274,6 +317,10 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float3 deepColor = _BaseColorDeep.rgb;
                 float3 waterColor = lerp(shallowColor, deepColor, shallow01);
 
+                // Crests are thinner water: lift them toward the subsurface colour (reads as volume).
+                float crestT = saturate(i.waveHeight / max(0.05, _CrestHeight));
+                waterColor = lerp(waterColor, _SubsurfaceColor.rgb, crestT * crestT * _CrestLift * 0.5);
+
                 // --- Refraction: nudge the opaque scene behind the water, strongest in shallows ---
                 float2 refractOffset = normal.xz * _RefractionStrength * (1.0 - depthFade);
                 float3 refracted = SampleSceneColor(screenUV + refractOffset);
@@ -292,6 +339,10 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float reflW = saturate(_ReflectionStrength * (0.15 + fresnel * 0.85));
                 lit = lerp(lit, envColor, reflW);
 
+                // Toward the horizon the sea turns into a sky-tinted mirror (aerial perspective).
+                float horizon = saturate(smoothstep(_DetailFadeStart * 0.5, _DetailFadeEnd * 2.0, camDist));
+                lit = lerp(lit, lerp(envColor, _HorizonColor.rgb, 0.5), horizon * 0.55);
+
                 // --- Subsurface / translucency: crests glow when the sun is behind them ---
                 float back = saturate(dot(viewDir, -lightDir));
                 float sss = pow(back, 3.0) * (crestFoam + shallow01 * 0.5) * _SubsurfaceStrength;
@@ -302,18 +353,23 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float shoreFoam = (1.0 - depthFade) * _FoamIntensity;
                 float slopeMag = length(slope);
                 float whitecap = saturate((slopeMag - 0.30) * 1.6) * detailFade;
-                float breakup = 0.55 + 0.45 * sin(i.worldPos.x * 0.7 + _OceanTime * 0.9) * cos(i.worldPos.z * 0.6 - _OceanTime * 0.6);
+                float2 foamUV = i.worldPos.xz * _FoamNoiseScale + float2(_OceanTime * 0.05, -_OceanTime * 0.03);
+                float breakup = saturate((FoamNoise(foamUV) - 0.35) * 2.2);
                 whitecap *= breakup;
-                float foam = saturate(shoreFoam + crestFoam + whitecap * _FoamIntensity);
+                float foam = saturate(shoreFoam * breakup + (crestFoam + whitecap * _FoamIntensity) * breakup);
                 lit += _FoamColor.rgb * foam;
 
                 // --- Sun glint ---
                 float spec = pow(ndh, _SpecularPower) * _Gloss;
                 lit += lerp(float3(0.4, 0.5, 0.65), float3(1.0, 1.0, 1.0), fresnel) * spec * mainLight.color;
+                // Tight glitter lobe on the fine ripples: the sparkle path toward the sun.
+                float glitter = pow(ndh, _GlitterPower) * _GlitterStrength * detailFade;
+                lit += glitter * mainLight.color * mainLight.shadowAttenuation;
 
                 float alpha = lerp(_TransparencyMin, _TransparencyMax, depthFade);
                 alpha = saturate(alpha + foam * 0.15 + fresnel * 0.1);
 
+                lit = MixFog(lit, i.fogFactor);
                 return half4(lit, alpha);
             }
             ENDHLSL

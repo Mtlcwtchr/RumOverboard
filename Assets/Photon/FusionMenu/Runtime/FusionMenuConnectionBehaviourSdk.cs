@@ -182,12 +182,12 @@ namespace FusionDemo {
 
     private NetworkRunner CreateRunner() {
       var go = new GameObject("NetworkRunner", typeof(NetworkRunner));
-      // Fusion Physics addon: step + predict PhysX inside Fusion's sim loop. Must be on the
-      // runner GameObject before StartGame so Fusion registers it. SimulateForward gives the
-      // local (input-authority) player client-side physics prediction. (RumOverboard edit —
+      // Fusion Physics addon: the host steps PhysX inside Fusion's sim loop. Must be on the
+      // runner GameObject before StartGame so Fusion registers it. Clients don't predict
+      // (pure host authority, see NetworkPlayer). (RumOverboard edit —
       // reverts if the Fusion Menu package is re-imported; see SETUP_MULTIPLAYER.md §2.)
       var physics = go.AddComponent<Fusion.Addons.Physics.RunnerSimulatePhysics3D>();
-      physics.ClientPhysicsSimulation = Fusion.Addons.Physics.ClientPhysicsSimulation.SimulateForward;
+      physics.ClientPhysicsSimulation = Fusion.Addons.Physics.ClientPhysicsSimulation.Disabled; // RumOverboard: host authority, clients never predict physics
       return go.GetComponent<NetworkRunner>();
     }
 

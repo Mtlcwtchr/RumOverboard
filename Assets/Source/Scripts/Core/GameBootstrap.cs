@@ -23,7 +23,12 @@ namespace RumOverboard.Core
             if (bootDelaySeconds > 0f)
                 await UniTask.Delay((int)(bootDelaySeconds * 1000));
 
-            SceneManager.LoadScene(menuScene, LoadSceneMode.Single);
+            // "-scene ShipSandbox" on the command line boots straight into a scene (builds / automation).
+            string[] args = System.Environment.GetCommandLineArgs();
+            int i = System.Array.IndexOf(args, "-scene");
+            string target = i >= 0 && i + 1 < args.Length ? args[i + 1] : menuScene;
+
+            SceneManager.LoadScene(target, LoadSceneMode.Single);
         }
     }
 }

@@ -60,6 +60,25 @@ namespace RumOverboard.Networking
         [SerializeField] private bool autoStartOnPlay = false;
         [SerializeField] private GameMode autoStartMode = GameMode.AutoHostOrClient;
 
+        [Tooltip("If the online start fails (no internet / Photon cloud), start an offline Single-player " +
+                 "session instead so the scene is always playable.")]
+        [SerializeField] private bool fallbackToSingle = true;
+
+        private string _autoSession;
+
+        /// <summary>Overrides the auto-start mode (and session) before Start() runs (tests / automation).</summary>
+        public void OverrideAutoStart(GameMode mode, string session = null)
+        {
+            autoStartOnPlay = true;
+            autoStartMode = mode;
+            _autoSession = session;
+            if (mode == GameMode.Client)
+                fallbackToSingle = false;
+        }
+
+        /// <summary>Automation hook: post-processes the local input before it is sent (tests only).</summary>
+        public static System.Func<NetworkInputData, NetworkInputData> InputInjector;
+
         [Tooltip("Seconds to wait for the menu-created runner to appear before giving up " +
                  "(only used when Auto Start On Play is off).")]
         [SerializeField] private float attachTimeout = 10f;
@@ -84,7 +103,7 @@ namespace RumOverboard.Networking
         private async void Start()
         {
             if (autoStartOnPlay)
-                await StartGame(autoStartMode, null);
+                await StartGame(autoStartMode, _autoSession);
             else
                 await AttachToActiveRunner();
         }
@@ -142,8 +161,11 @@ namespace RumOverboard.Networking
             if (runnerGo.GetComponent<Fusion.Addons.Physics.RunnerSimulatePhysics3D>() != null)
                 return;
 
+            // Host authority: the host steps PhysX inside Fusion's tick. Clients do NOT predict any
+            // networked body (all are kinematic, interpolated proxies), so they don't step PhysX in
+            // the tick at all; local cosmetic physics (ragdoll bones) is stepped in Update instead.
             var sim = runnerGo.AddComponent<Fusion.Addons.Physics.RunnerSimulatePhysics3D>();
-            sim.ClientPhysicsSimulation = Fusion.Addons.Physics.ClientPhysicsSimulation.SimulateForward;
+            sim.ClientPhysicsSimulation = Fusion.Addons.Physics.ClientPhysicsSimulation.Disabled;
         }
 
         /// <summary>Spawn any player already in the session that we haven't spawned yet.</summary>
@@ -186,18 +208,19 @@ namespace RumOverboard.Networking
 
             ApplyAppId();
 
-            _runner = gameObject.AddComponent<NetworkRunner>();
+            // The runner lives on its own child object so a failed start can be torn down and
+            // retried (a NetworkRunner can't be restarted).
+            var runnerGo = new GameObject($"NetworkRunner ({mode})");
+            runnerGo.transform.SetParent(transform, false);
+            _runner = runnerGo.AddComponent<NetworkRunner>();
             _runner.ProvideInput = true;
             _runner.AddCallbacks(this);
 
-            // Fusion Physics addon: steps + predicts PhysX inside the sim loop. Must exist on the
-            // runner GameObject before StartGame so Fusion registers it. (Menu-created runners get
-            // this from FusionMenuConnectionBehaviourSdk.CreateRunner instead.)
-            EnsurePhysicsSimulator(gameObject);
+            // Fusion Physics addon: steps PhysX inside the network tick. Must exist on the runner
+            // GameObject before StartGame so Fusion registers it.
+            EnsurePhysicsSimulator(runnerGo);
 
-            var sceneManager = gameObject.AddComponent<NetworkSceneManagerDefault>();
-
-            NetworkSceneInfo sceneInfo = BuildCurrentSceneInfo();
+            var sceneManager = runnerGo.AddComponent<NetworkSceneManagerDefault>();
 
             var args = new StartGameArgs
             {
@@ -207,13 +230,25 @@ namespace RumOverboard.Networking
                     : session,
                 PlayerCount = config != null ? config.MaxCrew : 4,
                 SceneManager = sceneManager,
-                Scene = sceneInfo,
+                Scene = BuildCurrentSceneInfo(),
             };
 
             StartGameResult result = await _runner.StartGame(args);
             if (!result.Ok)
             {
-                Debug.LogError($"[ConnectionManager] StartGame failed: {result.ShutdownReason}");
+                Debug.LogError($"[ConnectionManager] StartGame({mode}) failed: {result.ShutdownReason}");
+                if (_runner != null)
+                    _runner.RemoveCallbacks(this);
+                _runner = null;
+                if (runnerGo != null)
+                    Destroy(runnerGo);
+
+                if (fallbackToSingle && mode != GameMode.Single)
+                {
+                    Debug.LogWarning("[ConnectionManager] Falling back to offline Single mode (no Photon cloud).");
+                    await UniTask.DelayFrame(2);
+                    return await StartGame(GameMode.Single, session);
+                }
                 return false;
             }
 
@@ -295,6 +330,15 @@ namespace RumOverboard.Networking
                     if (_players.ContainsKey(player))
                         return;
 
+                    // Crew spawns on the ship's deck: wait (briefly) for the ship to exist first.
+                    if (shipPrefab.IsValid && spawnShipOnSessionStart && _ship == null &&
+                        Time.realtimeSinceStartup < deadline - 4f)
+                    {
+                        EnsureShipSpawned();
+                        await UniTask.Delay(100);
+                        continue;
+                    }
+
                     try
                     {
                         GetSpawnPose(out Vector3 pos, out Quaternion rot);
@@ -336,6 +380,13 @@ namespace RumOverboard.Networking
 
         private void GetSpawnPose(out Vector3 pos, out Quaternion rot)
         {
+            if (_ship != null && _ship.TryGetComponent(out NetworkShip ship) &&
+                ship.TryGetCrewSpawn(_spawnCounter, out pos, out rot))
+            {
+                _spawnCounter++;
+                return;
+            }
+
             if (spawnPoints != null && spawnPoints.Length > 0)
             {
                 Transform p = spawnPoints[_spawnCounter % spawnPoints.Length];
@@ -584,21 +635,41 @@ namespace RumOverboard.Networking
         // ---- Input ---------------------------------------------------------------
         public void OnInput(NetworkRunner runner, NetworkInput input)
         {
+            NetworkInputData data = _input.Read();
+
             var rig = RumOverboard.Gameplay.PlayerCameraRig.Instance;
             if (rig != null)
             {
-                _input.CameraYaw = rig.Yaw;
-                _input.CameraPitch = rig.Pitch;
+                data.LookYaw = rig.Yaw;
+                data.LookPitch = rig.Pitch;
+                data.LookSpace = rig.LookSpace;
+                data.Target = rig.FocusRef;
             }
             else if (Camera.main != null)
             {
-                _input.CameraYaw = Camera.main.transform.eulerAngles.y;
+                data.LookYaw = Camera.main.transform.eulerAngles.y;
                 float pitch = Camera.main.transform.eulerAngles.x;
                 if (pitch > 180f) pitch -= 360f;
-                _input.CameraPitch = Mathf.Clamp(pitch, -89f, 89f);
+                data.LookPitch = Mathf.Clamp(pitch, -89f, 89f);
             }
 
-            input.Set(_input.Read());
+            if (InputInjector != null)
+                data = InputInjector(data);
+            input.Set(data);
+        }
+
+        private void Update()
+        {
+            // Latch taps between network ticks (a press shorter than a tick is never lost).
+            if (_runner != null && _runner.IsRunning)
+            {
+                _input.Accumulate();
+
+                // Clients never simulate networked bodies; only local cosmetic ragdolls need PhysX.
+                if (!_runner.IsServer && RumOverboard.Gameplay.RagdollController.PhysicalCount > 0 &&
+                    Physics.simulationMode == SimulationMode.Script)
+                    Physics.Simulate(Mathf.Min(Time.deltaTime, 0.05f));
+            }
         }
 
         // ---- Remaining INetworkRunnerCallbacks (unused, required by interface) ----

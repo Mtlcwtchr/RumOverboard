@@ -1,5 +1,6 @@
 using System;
 using RumOverboard.Core;
+using RumOverboard.Core.Character;
 using RumOverboard.StateMachine.Serialization;
 using UnityEngine;
 
@@ -23,6 +24,7 @@ namespace RumOverboard.StateMachine
         Climbing = 1u << 2,
         Swimming = 1u << 3,
         Steering = 1u << 4, // standing at the helm; body locked, A/D turns the wheel
+        HoldingRope = 1u << 5, // a line end in hand (action layer): LMB hauls, RMB eases, E on a pin ties, G drops
 
         // Action group — layered on top of locomotion.
         DrinkingRum = 1u << 8,
@@ -45,9 +47,8 @@ namespace RumOverboard.StateMachine
 
         // Sensors (filled by the driver each fixed tick)
         public bool IsGrounded;
-        public bool NearClimb;
         public bool InWater;
-        public bool NearHelm;
+        public float WaterSurfaceY = float.NegativeInfinity;
         public bool HasInteractionTarget;
 
         // Velocity of whatever we're standing on (the ship deck), at the feet — includes the ship's
@@ -55,26 +56,35 @@ namespace RumOverboard.StateMachine
         // with the ship instead of sliding off.
         public Vector3 GroundVelocity;
         public Vector3 GroundNormal = Vector3.up;
+        public Rigidbody GroundBody; // the moving body under our feet (ship hull), null on static ground
+        public bool StepAhead;       // a low ledge (stair step, coaming) right in front, free above it
 
-        // Helm anchor (world) the crew member locks to while Steering — filled by the driver.
-        public bool HasSteerAnchor;
-        public Vector3 SteerAnchorPosition;
-        public float SteerAnchorYaw;
+        // Look-at target, already validated by the driver (range + availability). Exactly one of the
+        // typed slots is set for a usable target; the driver resolves them from Gameplay types so
+        // this layer only sees the Core interfaces.
+        public IClimbRail ClimbTarget;
+        public IStationAnchor HelmTarget;
+        public Vector3 TargetPoint;
 
-        // Nearest climbable, resolved by the driver (primitives only, so this layer
-        // never references the Gameplay assembly).
-        public int ClimbTargetId;
-        public Vector3 ClimbPoint;
+        // What we're currently attached to (set by the states on Enter, cleared on Exit).
+        public IClimbRail ActiveClimb;
+        public float ClimbU;
+        public float ClimbV;
+        public IStationAnchor ActiveStation;
+
+        /// <summary>Set by an attached state when it wants to let go this tick (top/bottom/jump).</summary>
+        public bool ReleaseRequested;
 
         // Input (plain — translated from NetworkInputData by the driver).
         // Move is already scaled by ControlAuthority so drunk/ragdolled crew steer less.
         public Vector2 Move;
-        public float LookYaw;
+        public float LookYaw;   // world yaw (driver resolves ship-relative input)
         public float LookPitch;
         public bool JumpPressed;
-        public bool ClimbPressed;
         public bool InteractPressed;
+        public bool DrinkPressed;
         public bool RagdollPressed;
+        public bool SprintHeld;
 
         // Jump forgiveness timers (host-only runtime helpers).
         public float JumpBufferTimer;

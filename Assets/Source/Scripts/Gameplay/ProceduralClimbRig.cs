@@ -1,4 +1,5 @@
 #if FUSION2
+using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Networking;
 using UnityEngine;
 
@@ -19,20 +20,31 @@ namespace RumOverboard.Gameplay
         [SerializeField] private Animator animator;
         [SerializeField] private NetworkPlayer player;
 
-        [Header("Surface probe")]
-        [Tooltip("Layers that count as climbable (same mask you use on NetworkPlayer).")]
+        [Header("Surface probe (fallback when no rail is known)")]
         [SerializeField] private LayerMask climbMask = ~0;
         [SerializeField] private float reach = 0.9f;
+
+        [Header("Climb cycle")]
+        [Tooltip("Distance between successive hand/foot holds along the rail (m).")]
+        [SerializeField] private float stride = 0.42f;
+        [Tooltip("Hands reach this far above the grip line (m).")]
+        [SerializeField] private float handReach = 0.42f;
+        [Tooltip("Feet stand this far below the grip line (m).")]
+        [SerializeField] private float footDrop = 1.0f;
         [Tooltip("Horizontal gap between the two hands / feet on the surface.")]
-        [SerializeField] private float limbSpread = 0.22f;
-        [SerializeField] private float handHeight = 0.35f;
-        [SerializeField] private float footDrop = 0.55f;
+        [SerializeField] private float limbSpread = 0.17f;
+        [Tooltip("How fast a limb moves to its next hold (1/s).")]
+        [SerializeField] private float limbSpeed = 14f;
 
         [Header("Blend")]
-        [Range(0f, 1f)] [SerializeField] private float maxWeight = 0.9f;
-        [SerializeField] private float weightLerp = 10f;
+        [Range(0f, 1f)] [SerializeField] private float maxWeight = 1f;
+        [SerializeField] private float weightLerp = 8f;
 
         private float _weight;
+        private readonly Vector3[] _limbPos = new Vector3[4];
+        private readonly bool[] _limbValid = new bool[4];
+        private static readonly AvatarIKGoal[] Goals =
+            { AvatarIKGoal.LeftHand, AvatarIKGoal.RightHand, AvatarIKGoal.LeftFoot, AvatarIKGoal.RightFoot };
 
         private void Awake()
         {
@@ -51,47 +63,78 @@ namespace RumOverboard.Gameplay
 
         private void OnAnimatorIK(int layerIndex)
         {
-            if (animator == null) return;
+            if (animator == null || layerIndex != 0) return;
 
-            bool climbing = player != null && player.IsClimbing;
+            bool climbing = player != null && player.IsClimbing && !player.IsKnockedOut;
             _weight = Mathf.MoveTowards(_weight, climbing ? maxWeight : 0f, weightLerp * Time.deltaTime);
-
             if (_weight <= 0.001f)
             {
-                ClearLimb(AvatarIKGoal.LeftHand);
-                ClearLimb(AvatarIKGoal.RightHand);
-                ClearLimb(AvatarIKGoal.LeftFoot);
-                ClearLimb(AvatarIKGoal.RightFoot);
+                for (int i = 0; i < 4; i++) { ClearLimb(Goals[i]); _limbValid[i] = false; }
                 return;
             }
 
-            // Probe forward from the chest into the surface the crew member is hugging.
+            if (TryGetRail(out ClimbSurface rail))
+                PlaceOnRail(rail);
+            else
+                PlaceByProbe();
+        }
+
+        // Hand-over-hand on the actual rail: every limb holds a fixed point on the surface while the
+        // body moves, then reaches to the next hold. Diagonal pairs (LH+RF, RH+LF) alternate.
+        private void PlaceOnRail(ClimbSurface rail)
+        {
+            rail.ProjectBody(animator.transform.position, out float u, out float v);
+            Vector3 lateral = rail.LateralWorld;
+            Quaternion grip = Quaternion.LookRotation(-rail.OutwardWorld, rail.AxisWorld);
+
+            for (int i = 0; i < 4; i++)
+            {
+                bool hand = i < 2;
+                float side = (i % 2 == 0) ? -1f : 1f;
+                // Diagonal pairing: left hand with right foot share a phase, right hand with left foot.
+                float phase = (i == 0 || i == 3) ? 0f : 0.5f;
+                float baseU = hand ? u + handReach : u - footDrop;
+                float hold = (Mathf.Floor(baseU / stride + phase) - phase) * stride + stride * 0.5f;
+                Vector3 target = rail.SurfacePoint(hold, v + side * limbSpread) + rail.OutwardWorld * (hand ? 0.04f : 0.06f);
+
+                _limbPos[i] = _limbValid[i] ? Vector3.Lerp(_limbPos[i], target, 1f - Mathf.Exp(-limbSpeed * Time.deltaTime)) : target;
+                _limbValid[i] = true;
+                SetLimb(Goals[i], _limbPos[i], grip);
+            }
+        }
+
+        private void PlaceByProbe()
+        {
             Transform a = animator.transform;
             Vector3 origin = BonePosition(HumanBodyBones.Chest, a.position + Vector3.up * 1.2f);
-            if (!Physics.Raycast(origin, a.forward, out RaycastHit hit, reach, climbMask, QueryTriggerInteraction.Collide))
+            if (!Physics.Raycast(origin, a.forward, out RaycastHit hit, reach, climbMask, QueryTriggerInteraction.Ignore))
             {
-                // No surface right in front — fade the goals out but keep the weight we have.
-                ClearLimb(AvatarIKGoal.LeftHand);
-                ClearLimb(AvatarIKGoal.RightHand);
-                ClearLimb(AvatarIKGoal.LeftFoot);
-                ClearLimb(AvatarIKGoal.RightFoot);
+                for (int i = 0; i < 4; i++) ClearLimb(Goals[i]);
                 return;
             }
 
             Vector3 right = Vector3.Cross(Vector3.up, hit.normal);
             right = right.sqrMagnitude > 0.001f ? right.normalized : a.right;
             Quaternion grip = Quaternion.LookRotation(-hit.normal, Vector3.up);
-
-            SetLimb(AvatarIKGoal.LeftHand,  hit.point - right * limbSpread + Vector3.up * handHeight, grip);
-            SetLimb(AvatarIKGoal.RightHand, hit.point + right * limbSpread + Vector3.up * handHeight, grip);
+            SetLimb(AvatarIKGoal.LeftHand,  hit.point - right * limbSpread + Vector3.up * handReach, grip);
+            SetLimb(AvatarIKGoal.RightHand, hit.point + right * limbSpread + Vector3.up * handReach, grip);
             SetLimb(AvatarIKGoal.LeftFoot,  hit.point - right * limbSpread - Vector3.up * footDrop,  grip);
             SetLimb(AvatarIKGoal.RightFoot, hit.point + right * limbSpread - Vector3.up * footDrop,  grip);
+        }
+
+        private bool TryGetRail(out ClimbSurface rail)
+        {
+            rail = null;
+            if (player == null || player.Runner == null)
+                return false;
+            return InteractableIndex.TryResolve(player.Runner, player.AttachedRef, out Interactable target)
+                   && (rail = target as ClimbSurface) != null;
         }
 
         private void SetLimb(AvatarIKGoal goal, Vector3 pos, Quaternion rot)
         {
             animator.SetIKPositionWeight(goal, _weight);
-            animator.SetIKRotationWeight(goal, _weight);
+            animator.SetIKRotationWeight(goal, _weight * 0.6f);
             animator.SetIKPosition(goal, pos);
             animator.SetIKRotation(goal, rot);
         }

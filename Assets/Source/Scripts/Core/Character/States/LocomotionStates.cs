@@ -1,5 +1,4 @@
 using RumOverboard.StateMachine;
-using RumOverboard.StateMachine.Serialization;
 using UnityEngine;
 
 namespace RumOverboard.Core.Character.States
@@ -18,19 +17,30 @@ namespace RumOverboard.Core.Character.States
     /// <summary>Walking the deck. Full input-driven control, rum wobble, and jumping.</summary>
     public sealed class GroundedState : PlayerStateBase
     {
-        public override PlayerState Id => PlayerState.Grounded;
-        public override PlayerState CompatibleWith => PlayerState.DrinkingRum;
+        // Standing still on a moving deck: remember the spot (in the deck's frame) and hold it, so
+        // the crew member doesn't slowly skate while the ship accelerates, heels or yaws.
+        private bool _anchored;
+        private Rigidbody _anchorBody;
+        private Vector3 _anchorLocal;
 
-        public override void Enter(StateContext ctx) => ctx.Body.useGravity = true;
+        public override PlayerState Id => PlayerState.Grounded;
+        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope;
+
+        public override void Enter(StateContext ctx)
+        {
+            ctx.Body.useGravity = true;
+            _anchored = false;
+        }
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 42.5f;
-            float accel = ctx.Config != null ? ctx.Config.GroundAcceleration : 70.0f;
-            float decel = ctx.Config != null ? ctx.Config.GroundDeceleration : 80.0f;
+            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f;
+            if (ctx.SprintHeld)
+                speed *= ctx.Config != null ? ctx.Config.SprintMultiplier : 1.6f;
+            float accel = ctx.Config != null ? ctx.Config.GroundAcceleration : 40f;
+            float decel = ctx.Config != null ? ctx.Config.GroundDeceleration : 55f;
             float coyote = ctx.Config != null ? ctx.Config.CoyoteTime : 0.12f;
 
-            // While grounded we keep refreshing coyote timer.
             ctx.CoyoteTimer = coyote;
 
             // Velocity of the deck under our feet (0 on static ground). We move RELATIVE to it so the
@@ -73,38 +83,62 @@ namespace RumOverboard.Core.Character.States
             {
                 Vector3 onSlope = Vector3.ProjectOnPlane(walk, groundN);
                 if (onSlope.sqrMagnitude > 1e-6f)
-                    walk = onSlope.normalized * walk.magnitude; // keep speed, add up/down slope component
+                    walk = onSlope.normalized * walk.magnitude;
             }
 
-            // Deck velocity + our own walking. Ride the deck heave; add the slope's vertical
-            // component when climbing up so ramps are walkable; otherwise keep gravity-driven Y.
             vel.x = pv.x + walk.x;
             vel.z = pv.z + walk.z;
-            if (walkableSlope && walk.y > 0.001f)
-                vel.y = (onMovingDeck ? pv.y : 0f) + walk.y; // climb the ramp
+            HoldDeckSpot(ctx, ref vel, inputMagnitude, onMovingDeck);
+            if (ctx.StepAhead && inputMagnitude > 0.1f)
+                vel.y = (onMovingDeck ? pv.y : 0f) + 2.6f; // pop up the step
+            else if (walkableSlope && walk.y > 0.001f)
+                vel.y = (onMovingDeck ? pv.y : 0f) + walk.y;
             else if (onMovingDeck)
                 vel.y = pv.y;
             ctx.Body.linearVelocity = vel;
 
-            if (inputMagnitude > 0.05f)
-                StateMovement.FaceMoveDirection(ctx, wish);
-
             if (ctx.JumpPressed)
             {
-                float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 20f;
+                float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 6f;
                 vel = ctx.Body.linearVelocity;
                 vel.y = onMovingDeck ? pv.y : 0f; // jump relative to the deck we're riding
-                ctx.Body.linearVelocity = vel;
-                ctx.Body.AddForce(Vector3.up * impulse, ForceMode.VelocityChange);
+                ctx.Body.linearVelocity = vel + Vector3.up * impulse;
                 ctx.CoyoteTimer = 0f;
             }
 
             ctx.PlanarSpeed = nextPlanar.magnitude; // animation reflects walking, not ship drift
         }
 
-        public override void Render(StateContext ctx)
+        private void HoldDeckSpot(StateContext ctx, ref Vector3 vel, float inputMagnitude, bool onMovingDeck)
         {
-            // Animator params are applied centrally from replicated state in NetworkPlayer.Render().
+            Rigidbody deck = ctx.GroundBody;
+            bool idle = inputMagnitude < 0.05f && !ctx.JumpPressed && deck != null && onMovingDeck;
+            if (!idle)
+            {
+                _anchored = false;
+                return;
+            }
+
+            Vector3 pos = ctx.Body.position;
+            if (!_anchored || _anchorBody != deck)
+            {
+                _anchored = true;
+                _anchorBody = deck;
+                _anchorLocal = Quaternion.Inverse(deck.rotation) * (pos - deck.position);
+                return;
+            }
+
+            Vector3 target = deck.position + deck.rotation * _anchorLocal;
+            Vector3 error = target - pos;
+            error.y = 0f;
+            if (error.sqrMagnitude > 1f) // shoved away (wave, crewmate): accept the new spot
+            {
+                _anchorLocal = Quaternion.Inverse(deck.rotation) * (pos - deck.position);
+                return;
+            }
+            Vector3 correction = Vector3.ClampMagnitude(error / 0.15f, 2f);
+            vel.x += correction.x;
+            vel.z += correction.z;
         }
     }
 
@@ -112,29 +146,28 @@ namespace RumOverboard.Core.Character.States
     public sealed class InAirState : PlayerStateBase
     {
         public override PlayerState Id => PlayerState.InAir;
-        public override PlayerState CompatibleWith => PlayerState.DrinkingRum;
+        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope;
 
         public override void Enter(StateContext ctx) => ctx.Body.useGravity = true;
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 42.5f;
-            float riseExtraGravity = ctx.Config != null ? ctx.Config.ExtraRiseGravity : 90f;
-            float fallExtraGravity = ctx.Config != null ? ctx.Config.ExtraFallGravity : 180f;
+            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f;
+            float riseExtraGravity = ctx.Config != null ? ctx.Config.ExtraRiseGravity : 8f;
+            float fallExtraGravity = ctx.Config != null ? ctx.Config.ExtraFallGravity : 20f;
 
             ctx.CoyoteTimer = Mathf.Max(0f, ctx.CoyoteTimer - ctx.DeltaTime);
             if (ctx.JumpPressed && ctx.CoyoteTimer > 0f)
             {
-                float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 20f;
+                float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 6f;
                 Vector3 preJump = ctx.Body.linearVelocity;
                 preJump.y = Mathf.Max(0f, preJump.y);
-                ctx.Body.linearVelocity = preJump;
-                ctx.Body.AddForce(Vector3.up * impulse, ForceMode.VelocityChange);
+                ctx.Body.linearVelocity = preJump + Vector3.up * impulse;
                 ctx.CoyoteTimer = 0f;
             }
 
             Vector3 wish = StateMovement.InputToWorld(ctx);
-            ctx.Body.AddForce(wish * (speed * 0.4f), ForceMode.Acceleration); // light air steering
+            ctx.Body.AddForce(wish * (speed * 0.8f), ForceMode.Acceleration); // light air steering
 
             float extraGravity = ctx.Body.linearVelocity.y > 0f ? riseExtraGravity : fallExtraGravity;
             if (extraGravity > 0f)
@@ -143,47 +176,116 @@ namespace RumOverboard.Core.Character.States
             Vector3 vel = ctx.Body.linearVelocity;
             ctx.PlanarSpeed = new Vector2(vel.x, vel.z).magnitude;
         }
-
-        public override void Render(StateContext ctx)
-        {
-            // Animator params are applied centrally from replicated state in NetworkPlayer.Render().
-        }
     }
 
-    /// <summary>Clinging to the mast/rigging. Gravity off; move up/down with a lateral shimmy.</summary>
+    /// <summary>
+    /// On a climb rail (mast, ladder). The body stays dynamic but gravity-free and is driven to the
+    /// rail point (u, v) by <see cref="AttachMotor"/>, so it rides the moving mast exactly.
+    /// W/S climbs, A/D shimmies; past the top it steps onto the exit platform (if any), below the
+    /// bottom it lets go; Space jumps off backwards. Collisions are relaxed by the driver while
+    /// attached so yards/platforms can't wedge the climber.
+    /// </summary>
     public sealed class ClimbingState : PlayerStateBase
     {
+        private const float MantleDuration = 0.4f;
+        private float _mantleT = -1f;
+        private Vector3 _mantleFrom;
+
         public override PlayerState Id => PlayerState.Climbing;
         public override PlayerState CompatibleWith => PlayerState.DrinkingRum;
 
         public override void Enter(StateContext ctx)
         {
             ctx.Body.useGravity = false;
-            ctx.Body.linearVelocity = Vector3.zero;
+            ctx.ActiveClimb = ctx.ClimbTarget;
+            ctx.ReleaseRequested = false;
+            _mantleT = -1f;
+            if (ctx.ActiveClimb != null)
+                ctx.ActiveClimb.Project(ctx.TargetPoint, out ctx.ClimbU, out ctx.ClimbV);
+        }
 
-            // Demonstrate the payload channel: announce what we grabbed and where.
-            ctx.EmitPayload(new ClimbAttachPayload
-            {
-                ClimbableId = ctx.ClimbTargetId,
-                LocalPoint = ctx.ClimbPoint,
-            });
+        public override void Exit(StateContext ctx)
+        {
+            ctx.Body.useGravity = true;
+            ctx.ActiveClimb = null;
         }
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = ctx.Config != null ? ctx.Config.ClimbSpeed : 2.5f;
-            ctx.Body.linearVelocity = new Vector3(ctx.Move.x * speed * 0.5f, ctx.Move.y * speed, 0f);
+            IClimbRail rail = ctx.ActiveClimb;
+            if (rail == null || rail.Body == null)
+            {
+                ctx.ReleaseRequested = true;
+                return;
+            }
+
+            float speed = (ctx.Config != null ? ctx.Config.ClimbSpeed : 2.5f) * rail.SpeedMultiplier;
+            if (ctx.SprintHeld)
+                speed *= 1.5f;
+
+            float dt = ctx.DeltaTime;
+            ctx.ClimbU += ctx.Move.y * speed * dt;
+            ctx.ClimbV += ctx.Move.x * speed * 0.6f * dt;
+            ctx.ClimbV = Mathf.Clamp(ctx.ClimbV, -rail.HalfWidth, rail.HalfWidth);
             ctx.PlanarSpeed = Mathf.Abs(ctx.Move.y) * speed;
-        }
 
-        public override void Render(StateContext ctx)
-        {
-            // Animator params are applied centrally from replicated state in NetworkPlayer.Render().
-        }
+            Vector3 railVel = rail.Body.GetPointVelocity(ctx.Body.position);
 
-        public override void OnPayload(StateContext ctx, IStatePayload payload)
-        {
-            // On clients: could place the hands at LocalPoint on the grabbed climbable.
+            // Jump off: push away from the rail, up a little.
+            if (ctx.JumpPressed)
+            {
+                ctx.Body.linearVelocity = railVel + rail.OutwardWorld * 3f + Vector3.up * 2.5f;
+                ctx.ReleaseRequested = true;
+                return;
+            }
+
+            // Mantling onto the exit platform: a short motor-driven move (never a teleport, which
+            // would pop on every peer's interpolation), then let go once standing on it.
+            if (_mantleT >= 0f)
+            {
+                _mantleT += dt / MantleDuration;
+                Vector3 exit = rail.TopExit.position + Vector3.up * 0.05f;
+                Vector3 over = Vector3.Lerp(_mantleFrom, exit, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_mantleT)));
+                over.y = Mathf.Max(over.y, exit.y); // up first, then over the lip
+                AttachMotor.Drive(ctx.Body, over, rail.Body.GetPointVelocity(exit), rail.BodyRotation, dt);
+                if (_mantleT >= 1f && (ctx.Body.position - exit).sqrMagnitude < 0.15f * 0.15f)
+                {
+                    ctx.Body.linearVelocity = rail.Body.GetPointVelocity(exit);
+                    ctx.ReleaseRequested = true;
+                }
+                else if (_mantleT > 2f)
+                {
+                    ctx.ReleaseRequested = true; // something blocked the mantle: just let go
+                }
+                return;
+            }
+
+            // Top: start mantling onto the exit platform, or clamp at the end of the rail.
+            if (ctx.ClimbU >= rail.Length)
+            {
+                ctx.ClimbU = rail.Length;
+                if (rail.TopExit != null && ctx.Move.y > 0.5f)
+                {
+                    _mantleT = 0f;
+                    _mantleFrom = ctx.Body.position;
+                    return;
+                }
+            }
+
+            // Bottom: holding down at the foot of the rail lets go onto the deck.
+            if (ctx.ClimbU <= 0f)
+            {
+                ctx.ClimbU = 0f;
+                if (ctx.Move.y < -0.5f)
+                {
+                    ctx.Body.linearVelocity = railVel;
+                    ctx.ReleaseRequested = true;
+                    return;
+                }
+            }
+
+            Vector3 target = rail.BodyPoint(ctx.ClimbU, ctx.ClimbV);
+            AttachMotor.Drive(ctx.Body, target, rail.Body.GetPointVelocity(target), rail.BodyRotation, dt);
         }
     }
 
@@ -191,53 +293,84 @@ namespace RumOverboard.Core.Character.States
     public sealed class SwimmingState : PlayerStateBase
     {
         public override PlayerState Id => PlayerState.Swimming;
-        // CompatibleWith None: both hands are busy — can't drink while swimming.
+        public override PlayerState CompatibleWith => PlayerState.HoldingRope;
 
         public override void Enter(StateContext ctx) => ctx.Body.useGravity = false;
+        public override void Exit(StateContext ctx) => ctx.Body.useGravity = true;
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 42.5f) * 0.6f;
+            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f) * 0.6f;
             Vector3 wish = StateMovement.InputToWorld(ctx);
 
             Vector3 vel = ctx.Body.linearVelocity;
-            vel.x = wish.x * speed;
-            vel.z = wish.z * speed;
-            vel.y = Mathf.Lerp(vel.y, 0f, 0.1f); // damp bobbing toward neutral buoyancy
+            vel.x = Mathf.Lerp(vel.x, wish.x * speed, 0.2f);
+            vel.z = Mathf.Lerp(vel.z, wish.z * speed, 0.2f);
+
+            // Float the chest at the surface: spring toward (surface - chest), damped.
+            float chestY = ctx.Body.position.y + 1.2f;
+            float error = ctx.WaterSurfaceY - chestY;
+            vel.y = Mathf.Lerp(vel.y, Mathf.Clamp(error * 3f, -3f, 3f), 0.15f);
+            if (ctx.JumpPressed && error > -0.3f)
+                vel.y = 4f;
             ctx.Body.linearVelocity = vel;
 
             StateMovement.FaceMoveDirection(ctx, wish);
             ctx.PlanarSpeed = new Vector2(vel.x, vel.z).magnitude;
         }
-
-        public override void Render(StateContext ctx)
-        {
-            // Animator params are applied centrally from replicated state in NetworkPlayer.Render().
-        }
     }
 
     /// <summary>
-    /// Standing at the helm. The body is locked to the wheel stand (no locomotion); A/D is consumed
-    /// by the driver as the steering signal, not as movement. Gravity off so the crew member doesn't
-    /// slide off the deck while pinned.
+    /// Standing at a ship station (the helm). Glued to the stand point by <see cref="AttachMotor"/>
+    /// (dynamic body, rides the deck); A/D is consumed by the driver as the steering signal.
     /// </summary>
     public sealed class SteeringState : PlayerStateBase
     {
         public override PlayerState Id => PlayerState.Steering;
-        // Both hands on the wheel — nothing layers on top.
 
-        public override void Enter(StateContext ctx) => ctx.Body.useGravity = false;
+        public override void Enter(StateContext ctx)
+        {
+            ctx.Body.useGravity = false;
+            ctx.ActiveStation = ctx.HelmTarget;
+        }
+
+        public override void Exit(StateContext ctx)
+        {
+            ctx.Body.useGravity = true;
+            ctx.ActiveStation = null;
+        }
 
         public override void FixedTick(StateContext ctx)
         {
-            // The body is pinned to the helm by NetworkPlayer (kinematic ride-along with the moving
-            // ship), so there's no locomotion to drive here — just report zero planar speed.
+            StationMotor.Hold(ctx);
             ctx.PlanarSpeed = 0f;
         }
+    }
 
-        public override void Exit(StateContext ctx) => ctx.Body.useGravity = true;
+    /// <summary>
+    /// A line end in your hands (action layer over Grounded / InAir / Swimming): you walk around
+    /// freely; the rigging system hauls / eases / leashes. Started and ended by the driver
+    /// (take / tie / drop), not by the transition table.
+    /// </summary>
+    public sealed class HoldingRopeState : PlayerStateBase
+    {
+        public override PlayerState Id => PlayerState.HoldingRope;
+        public override PlayerState CompatibleWith => PlayerState.Grounded | PlayerState.InAir | PlayerState.Swimming;
+    }
 
-        public override void Render(StateContext ctx) { }
+    internal static class StationMotor
+    {
+        public static void Hold(StateContext ctx)
+        {
+            IStationAnchor station = ctx.ActiveStation;
+            if (station == null || station.Body == null)
+            {
+                ctx.ReleaseRequested = true;
+                return;
+            }
+            Vector3 p = station.StandPosition;
+            AttachMotor.Drive(ctx.Body, p, station.Body.GetPointVelocity(p), station.StandRotation, ctx.DeltaTime);
+        }
     }
 
     /// <summary>Shared movement helpers so states don't duplicate math.</summary>
@@ -268,4 +401,3 @@ namespace RumOverboard.Core.Character.States
         }
     }
 }
-

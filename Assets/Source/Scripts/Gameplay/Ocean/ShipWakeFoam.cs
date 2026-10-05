@@ -62,6 +62,21 @@ namespace RumOverboard.Gameplay.Ocean
             waveField = field;
         }
 
+        /// <summary>Fit the bow/stern/beam anchors to the actual hull (defaults suit a ~9 m boat).</summary>
+        public void ConfigureHull(Vector3 bow, Vector3 stern, float beamHalf, float sizeScale)
+        {
+            bowLocal = bow;
+            sternLocal = stern;
+            halfBeam = beamHalf;
+            bowFoamSize *= sizeScale;
+            wakeFoamSize *= sizeScale;
+            bowRate *= sizeScale;
+            wakeRate *= sizeScale;
+            wakeLifetime *= Mathf.Sqrt(sizeScale);
+            if (_bow != null) { var m = _bow.main; m.startSize = bowFoamSize; }
+            if (_wake != null) { var m = _wake.main; m.startSize = wakeFoamSize; m.startLifetime = wakeLifetime; m.maxParticles = 6000; }
+        }
+
         private void LateUpdate()
         {
             float dt = Time.deltaTime;
