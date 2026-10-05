@@ -15,6 +15,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
     {
         private const string MaterialPath = "Assets/Source/Environment/Materials/Ocean/OceanStylizedURP.mat";
         private const string NormalPath = "Assets/Source/Environment/Materials/Ocean/OceanDetailNormal.png";
+        private const string FoamTexturePath = "Assets/Source/Environment/Textures/Ocean/External/foam3.png";
+        private const string PackNormalPath = "Assets/Source/Environment/Textures/Ocean/External/normal_map_02.png";
         private const int Size = 512;
 
         [MenuItem("RumOverboard/Ship Sandbox/Ocean/Apply Realistic Ocean Look", priority = 60)]
@@ -56,6 +58,24 @@ namespace RumOverboard.EditorTools.ShipSandbox
             Set(mat, "_FoamNoiseScale", 0.32f);
             if (normal != null && mat.HasProperty("_DetailNormal"))
                 mat.SetTexture("_DetailNormal", normal);
+
+            // Foam texture + hand-made ripple normals from the imported water packs.
+            var foamTex = AssetDatabase.LoadAssetAtPath<Texture2D>(FoamTexturePath);
+            if (foamTex != null && mat.HasProperty("_FoamTex"))
+                mat.SetTexture("_FoamTex", foamTex);
+            var packNormal = AssetDatabase.LoadAssetAtPath<Texture2D>(PackNormalPath);
+            if (packNormal != null && mat.HasProperty("_DetailNormal"))
+            {
+                mat.SetTexture("_DetailNormal", packNormal);
+                Set(mat, "_DetailTiling", 0.045f);
+                Set(mat, "_DetailNormalScale", 0.75f);
+            }
+            Set(mat, "_FoamTiling", 0.11f);
+            Set(mat, "_FoamSharpness", 4f);
+            Set(mat, "_InteractionFoamStrength", 1f);
+            Set(mat, "_IntersectionFoamDepth", 0.55f);
+            Set(mat, "_IntersectionFoamStrength", 0.75f);
+            Set(mat, "_AeratedTint", 0.35f);
             EditorUtility.SetDirty(mat);
             AssetDatabase.SaveAssets();
             Debug.Log("[OceanLook] Ocean material updated (detail normals, opaque deep water, glitter, horizon haze).");

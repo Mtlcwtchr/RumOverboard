@@ -97,14 +97,19 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         }
 
         // Rope between two points with a catenary-ish sag from its slack (m); returns next index.
-        private static int WriteSag(Vector3 from, Vector3 to, float slack, int start)
+        private static int WriteSag(Vector3 from, Vector3 to, float slack, int start, float hum = 0f, float phase = 0f)
         {
             float len = Vector3.Distance(from, to);
             float drop = Mathf.Min(Mathf.Sqrt(Mathf.Max(0f, slack) * Mathf.Max(0.01f, len)) * 0.6f, 4f);
+            Vector3 along = len > 1e-4f ? (to - from) / len : Vector3.up;
+            Vector3 side = Vector3.Cross(along, Vector3.up);
+            side = side.sqrMagnitude > 1e-4f ? side.normalized : Vector3.right;
+            float shiver = hum * Mathf.Sin(phase);
             for (int s = 0; s <= Segments; s++)
             {
                 float t = s / (float)Segments;
-                Vector3 p = Vector3.Lerp(from, to, t) + Vector3.down * (drop * 4f * t * (1f - t));
+                float belly = 4f * t * (1f - t);
+                Vector3 p = Vector3.Lerp(from, to, t) + Vector3.down * (drop * belly) + side * (shiver * belly);
                 Points[start + s] = p;
             }
             return start + Segments + 1;

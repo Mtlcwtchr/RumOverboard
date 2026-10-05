@@ -74,6 +74,19 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             cfg.EndFriction = Slider("End friction", cfg.EndFriction, 0f, 1f);
             cfg.TieSlack = Slider("Tie slack m", cfg.TieSlack, 0f, 2f);
 
+            GUILayout.Label("<b>Load / braces</b>");
+            cfg.FullLoadForce = Slider("Full-load force N", cfg.FullLoadForce, 200f, 15000f);
+            cfg.HalyardWeight = Slider("Halyard weight load", cfg.HalyardWeight, 0f, 1f);
+            cfg.HalyardWindShare = Slider("Halyard wind share", cfg.HalyardWindShare, 0f, 1f);
+            cfg.HeavyHaulFactor = Slider("Haul speed at full load", cfg.HeavyHaulFactor, 0.02f, 1f);
+            cfg.EaseLoadBoost = Slider("Ease boost per load", cfg.EaseLoadBoost, 0f, 4f);
+            cfg.HoldGrip = Slider("Hand grip (load)", cfg.HoldGrip, 0.1f, 3f);
+            cfg.SlipRate = Slider("Slip m/s per load", cfg.SlipRate, 0f, 8f);
+            cfg.YardSwingRate = Slider("Yard swing deg/s", cfg.YardSwingRate, 0f, 90f);
+            cfg.YardSwingWindRate = Slider("Yard swing +wind deg/s", cfg.YardSwingWindRate, 0f, 200f);
+            cfg.BraceLoadAngle = Slider("Brace full-load angle", cfg.BraceLoadAngle, 2f, 90f);
+            cfg.YardMinWind = Slider("Yard min wind m/s", cfg.YardMinWind, 0f, 5f);
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Reset from config"))
                 cfg.CopyFrom(_snapshot);
@@ -98,11 +111,19 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
                 if (line == null) continue;
                 GUILayout.BeginHorizontal();
                 GUILayout.Label($"{i,2} {line.DisplayName,-22}", GUILayout.Width(190f));
-                GUILayout.Label($"{ship.GetLineMode(i),-5} out {ship.GetLineOut(i):F1}m  {ship.GetLineValue(i) * 100f:F0}%  {ship.GetLineHolder(i)}");
+                GUILayout.Label($"{ship.GetLineMode(i),-5} out {ship.GetLineOut(i):F1}m  {ship.GetLineValue(i) * 100f:F0}%  load {ship.GetLineLoad(i):F2}  {ship.GetLineHolder(i)}");
                 if (ship.HasStateAuthority && ship.GetLineMode(i) == RigLineMode.Held &&
                     GUILayout.Button("Drop", GUILayout.Width(48f)))
                     ship.DropLine(i, ship.GetLineHolder(i));
                 GUILayout.EndHorizontal();
+            }
+
+            if (ship.Sails != null)
+            {
+                var sb = new System.Text.StringBuilder("yards: ");
+                for (int s = 0; s < Mathf.Min(ship.Sails.SailCount, NetworkShip.MaxSails); s++)
+                    sb.Append($"#{s} {ship.GetYardAngle(s):F0}°  ");
+                GUILayout.Label(sb.ToString());
             }
 
             if (!ship.HasStateAuthority)
@@ -115,6 +136,23 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             if (GUILayout.Button("Set all sails")) SetAll(ship, 1f);
             if (GUILayout.Button("Furl all sails")) SetAll(ship, 0f);
             GUILayout.EndHorizontal();
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("Square yards")) Brace(ship, 0.5f);
+            if (GUILayout.Button("Brace to port")) Brace(ship, 0.9f);
+            if (GUILayout.Button("Brace to starboard")) Brace(ship, 0.1f);
+            GUILayout.EndHorizontal();
+        }
+
+        // portShare: how much of the pair the PORT brace has hauled (0.5 = square).
+        private static void Brace(NetworkShip ship, float portShare)
+        {
+            for (int i = 0; i < NetworkShip.MaxLines; i++)
+            {
+                RigLine line = ship.Line(i);
+                if (line == null || !line.IsBrace) continue;
+                float v = line.Kind == RigLineKind.BracePort ? portShare : 1f - portShare;
+                ship.SetLineOut(i, line.OutFromValue(v));
+            }
         }
 
         private static void SetAll(NetworkShip ship, float value)

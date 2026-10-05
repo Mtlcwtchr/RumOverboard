@@ -54,7 +54,7 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailNormal:
-        m_Texture: {fileID: 2800000, guid: 76bad7996abdf4c27a5c852b1a4028a4, type: 3}
+        m_Texture: {fileID: 2800000, guid: 1978b6679e427ea46819585f5c7d8314, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _DetailNormalMap:
@@ -63,6 +63,10 @@ Material:
         m_Offset: {x: 0, y: 0}
     - _EmissionMap:
         m_Texture: {fileID: 0}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _FoamTex:
+        m_Texture: {fileID: 2800000, guid: 5186a95f6e7e8a947a6a09ea543b8f0e, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
@@ -100,6 +104,7 @@ Material:
     m_Ints: []
     m_Floats:
     - _AddPrecomputedVelocity: 0
+    - _AeratedTint: 0.35
     - _AlphaClip: 0
     - _AlphaToMask: 0
     - _Blend: 0
@@ -117,20 +122,25 @@ Material:
     - _DetailFadeEnd: 230
     - _DetailFadeStart: 110
     - _DetailNormalMapScale: 1
-    - _DetailNormalScale: 0.55
+    - _DetailNormalScale: 0.75
     - _DetailScroll: 0.035
-    - _DetailTiling: 0.075
+    - _DetailTiling: 0.045
     - _DstBlend: 0
     - _DstBlendAlpha: 0
     - _EnvironmentReflections: 1
     - _FoamIntensity: 0.55
     - _FoamNoiseScale: 0.32
+    - _FoamSharpness: 4
+    - _FoamTiling: 0.11
     - _GlitterPower: 1100
     - _GlitterStrength: 7
     - _Gloss: 0.65
     - _GlossMapScale: 0
     - _Glossiness: 0
     - _GlossyReflections: 0
+    - _InteractionFoamStrength: 1
+    - _IntersectionFoamDepth: 0.55
+    - _IntersectionFoamStrength: 0.75
     - _Metallic: 0
     - _OcclusionStrength: 1
     - _Parallax: 0.005

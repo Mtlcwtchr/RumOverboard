@@ -12,8 +12,12 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
     ///   Tied  — the end sits on its pin; Out is fixed.
     ///   Held  — the end is in the holder's hand. LMB hauls (Out↑), RMB eases (Out↓). Walking away
     ///           from the block with the rope taut hauls it too (up to WalkHaulRate); past that the
-    ///           rope is a leash and holds the crew member back. A loaded line pulls on the holder.
-    ///   Loose — nobody on it: the sail's load runs the rope back up (Out↓ to the stopper), the
+    ///           rope is a leash and holds the crew member back. Everything is weighted by the
+    ///           line's LOAD (YardSystem): a loaded line hauls slowly, eases fast, pulls the holder
+    ///           toward the block and, past the grip, slips through the hands.
+    ///           Braces: hauling one is limited by its partner (other yardarm) — a tied partner
+    ///           blocks, a loose one runs out.
+    ///   Loose — nobody on it: the load runs the rope back up (Out↓ to the stopper), the
     ///           free end swings/falls (simulated in ship space, collides with the ship) and can be
     ///           caught again.
     ///
@@ -65,10 +69,24 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             }
 
             NetworkShip.LineInput input = ship.ConsumeLineInput(i);
-            float rope = ship.GetLineOut(i);
-            if (input.Haul) rope += cfg.HaulRate * dt;
-            if (input.Ease) rope -= cfg.EaseRate * dt;
-            rope = Mathf.Clamp(rope, line.OutMin, line.OutMax);
+            float load = ship.GetLineLoad(i);
+            float heavy = Mathf.Lerp(1f, cfg.HeavyHaulFactor, Mathf.Clamp01(load));
+            float before = ship.GetLineOut(i);
+            float rope = before;
+            if (input.Haul) rope += cfg.HaulRate * heavy * dt;
+            if (input.Ease) rope -= cfg.EaseRate * (1f + cfg.EaseLoadBoost * load) * dt;
+
+            // A load beyond what hands can hold drags the rope out through them — you feel the sail.
+            if (load > cfg.HoldGrip)
+                rope -= cfg.SlipRate * (load - cfg.HoldGrip) * dt;
+
+            // Braces: the other brace of the yard must give. A loose partner just runs out through its
+            // block; a tied (or held) one stops the yard — hauling is blocked until it's eased.
+            float maxOut = line.OutMax;
+            int partner = ship.BracePartner(i);
+            bool partnerGives = partner >= 0 && ship.GetLineMode(partner) == RigLineMode.Loose;
+            if (partner >= 0 && !partnerGives)
+                maxOut = Mathf.Max(line.OutMin, YardSystem.MaxOutWithPartner(ship, line, partner));
 
             Rigidbody body = holder.GetComponent<Rigidbody>();
             Vector3 block = line.Block.position;
@@ -77,9 +95,25 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             float distance = toHand.magnitude;
             Vector3 dir = distance > 1e-3f ? toHand / distance : Vector3.down;
 
-            // Walking away with the rope taut drags more rope down through the block.
-            if (distance > rope && rope < line.OutMax)
-                rope = Mathf.Min(line.OutMax, Mathf.Min(distance, rope + cfg.WalkHaulRate * dt));
+            // Walking away with the rope taut drags more rope down through the block (just as heavy).
+            if (distance > rope && rope < maxOut)
+                rope = Mathf.Min(maxOut, Mathf.Min(distance, rope + cfg.WalkHaulRate * heavy * dt));
+
+            bool blocked = false;
+            if (rope > maxOut && rope > before)
+            {
+                rope = Mathf.Max(before, maxOut);
+                blocked = true;
+            }
+            rope = Mathf.Clamp(rope, line.OutMin, line.OutMax);
+
+            if (partnerGives)
+            {
+                RigLine pl = ship.Line(partner);
+                float allowed = pl.OutFromValue(1f - line.ValueFromOut(rope));
+                if (ship.GetLineOut(partner) > allowed)
+                    ship.SetLineOut(partner, allowed);
+            }
 
             // Past the rope's length it's a leash: cancel the outward motion and pull back in.
             float excess = distance - rope;
@@ -94,10 +128,13 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
                 body.linearVelocity = v;
             }
 
-            // A loaded line tugs at the hands.
-            float load = line.ValueFromOut(rope);
+            // A loaded line tugs at the hands (toward the block).
             if (excess > -0.15f && load > 0.01f && !body.isKinematic)
-                body.AddForce(-dir * cfg.LoadPull * load, ForceMode.Force);
+                body.AddForce(-dir * cfg.LoadPull * Mathf.Min(load, 1.5f), ForceMode.Force);
+
+            // Hauling into a stop (tied partner) is pure strain — show it.
+            if (blocked && input.Haul)
+                ship.SetLineLoad(i, Mathf.Max(load, 1f));
 
             ship.SetLineOut(i, rope);
             ship.SetLineEndLocal(i, ship.transform.InverseTransformPoint(hand));
@@ -105,11 +142,14 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
 
         private static void TickLoose(NetworkShip ship, RigLine line, int i, float dt, RiggingConfig cfg)
         {
-            // The sail's weight / wind runs the line out until the stopper knot hits the block.
+            // The load runs the line out until the stopper knot hits the block. Halyards always have
+            // the yard's weight on them; a brace only runs while the wind presses the yard on it.
             float rope = ship.GetLineOut(i);
-            float load = line.ValueFromOut(rope);
-            rope -= cfg.RunRate * Mathf.Lerp(cfg.RunRateLight, 1f, load) * dt;
-            rope = Mathf.Max(line.OutMin, rope);
+            float load = ship.GetLineLoad(i);
+            float run = line.IsBrace
+                ? cfg.RunRate * Mathf.Clamp01(load)
+                : cfg.RunRate * Mathf.Lerp(cfg.RunRateLight, 1f, Mathf.Clamp01(load));
+            rope = Mathf.Max(line.OutMin, rope - run * dt);
             ship.SetLineOut(i, rope);
 
             // Free end: a point mass in SHIP space (rides the deck), gravity in ship axes.
@@ -185,11 +225,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
                 RigLine line = ship.Line(i);
                 if (line == null || line.SailIndex < 0 || line.SailIndex >= sails.SailCount)
                     continue;
-                float value = ship.GetLineValue(i);
                 if (line.Kind == RigLineKind.Halyard)
-                    sails.SetHoist(line.SailIndex, value);
+                    sails.SetHoist(line.SailIndex, ship.GetLineValue(i));
                 else
-                    sails.SetSheetAngle(line.SailIndex, Mathf.Lerp(-line.SheetMaxAngle, line.SheetMaxAngle, value));
+                    sails.SetSheetAngle(line.SailIndex, ship.GetYardAngle(line.SailIndex)); // yard set by YardSystem
             }
         }
 

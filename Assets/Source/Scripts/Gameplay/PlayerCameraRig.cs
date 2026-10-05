@@ -115,15 +115,86 @@ namespace RumOverboard.Gameplay
             float worldYaw = _relYaw + SpaceYaw(_space);
             bool thirdPerson = _target.IsKnockedOut;
             _target.SetHeadHidden(!thirdPerson);
+            float strain = LocalStrain(out string strainLabel);
             if (thirdPerson)
                 UpdateThirdPerson(worldYaw);
             else
             {
                 transform.position = _target.GetFirstPersonEye(worldYaw);
-                transform.rotation = Quaternion.Euler(_pitch, worldYaw, 0f);
+                Vector3 feel = FeelOffsets(strain);
+                transform.rotation = Quaternion.Euler(_pitch + feel.x, worldYaw + feel.y, feel.z);
             }
 
+            HintOverlay.Ensure().SetStrain(thirdPerson ? 0f : strain, strainLabel);
             UpdateFocus();
+        }
+
+        // ---- Feel: drunk sway + effort shake (camera only, never the aim we send) ------------------
+        [Header("Feel")]
+        [Tooltip("Camera shake (deg) at full strain on a rope / the wheel.")]
+        [SerializeField] private float strainShake = 0.45f;
+        [Tooltip("Jolt (deg) when the wheel kicks in your hands / hits its stop.")]
+        [SerializeField] private float kickJolt = 2.2f;
+
+        private byte _lastKick;
+        private float _kick;
+        private float _kickSign = 1f;
+
+        private Vector3 FeelOffsets(float strain)
+        {
+            float t = Time.time;
+            float drunk = _target.Drunkenness;
+            float sway = (_target.Config != null ? _target.Config.DrunkCameraSway : 3.5f) * drunk;
+            float pitch = (Mathf.PerlinNoise(t * 0.31f, 2.7f) * 2f - 1f) * sway * 0.4f;
+            float yaw = (Mathf.PerlinNoise(t * 0.23f, 5.3f) * 2f - 1f) * sway * 0.6f;
+            float roll = (Mathf.PerlinNoise(t * 0.37f, 9.1f) * 2f - 1f) * sway;
+
+            float shake = Mathf.Clamp01((strain - 0.25f) / 0.75f) * strainShake;
+            pitch += (Mathf.PerlinNoise(t * 17f, 1.1f) * 2f - 1f) * shake;
+            roll += (Mathf.PerlinNoise(t * 15f, 4.4f) * 2f - 1f) * shake;
+
+            _kick = Mathf.MoveTowards(_kick, 0f, Time.deltaTime * 3.5f);
+            float jolt = _kick * _kick * kickJolt;
+            yaw += jolt * _kickSign * Mathf.Sin(t * 40f);
+            roll += jolt * _kickSign;
+            return new Vector3(pitch, yaw, roll);
+        }
+
+        /// <summary>
+        /// How hard what we're holding pulls back (0..1+): the wheel's water load at the helm, the
+        /// line's load on a rope. Also detects wheel kicks for a camera jolt.
+        /// </summary>
+        private float LocalStrain(out string label)
+        {
+            label = null;
+            if (_target.IsSteering && _target.Runner != null &&
+                InteractableIndex.TryResolve(_target.Runner, _target.AttachedRef, out Interactable attached) &&
+                attached is HelmStation station && station.Helm != null)
+            {
+                Ocean.ShipHelm helm = station.Helm;
+                if (helm.KickCount != _lastKick)
+                {
+                    _lastKick = helm.KickCount;
+                    _kick = 1f;
+                    _kickSign = helm.WheelVelocity >= 0f ? 1f : -1f;
+                }
+                label = "ШТУРВАЛ";
+                return Mathf.Abs(helm.Load);
+            }
+
+            if (_target.IsHoldingRope && _target.Object != null)
+            {
+                PlayerRef me = _target.Object.InputAuthority;
+                foreach (NetworkShip ship in NetworkShip.All)
+                {
+                    if (ship == null || ship.Object == null || !ship.Object.IsValid) continue;
+                    int line = ship.LineHeldBy(me);
+                    if (line < 0) continue;
+                    label = "КАНАТ";
+                    return ship.GetLineLoad(line);
+                }
+            }
+            return 0f;
         }
 
         // The host tells us which ship we're aboard; when it changes, re-express our yaw in the

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Fusion;
 using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Features.WaterInteraction;
 using RumOverboard.Gameplay.Ocean;
 using UnityEngine;
 
@@ -21,8 +22,11 @@ namespace RumOverboard.Networking
     ///     <see cref="RigLine"/> (ECS-style: data components index into ship-owned arrays).
     ///
     /// HOST TICK ORDER (deterministic, all inside FixedUpdateNetwork):
-    ///   ropes (line values) → apply lines to sails → sails + buoyancy (ShipRuntime).
-    ///   The helm applies its rudder torque in its own FixedUpdateNetwork.
+    ///   yards + line loads (YardSystem) → ropes (RopeSystem) → apply lines/yards to sails →
+    ///   sails + buoyancy (ShipRuntime). The helm applies its rudder torque in its own FixedUpdateNetwork.
+    ///
+    /// COSMETIC (every peer): ShipWaterInteractor writes the hull's foam / bow wave / wake into the
+    /// sea's interaction map; RopeRenderSystem draws the lines.
     ///
     /// SAFETY: a ship must be ONE dynamic Rigidbody. Nested dynamic bodies (e.g. a hull module that
     /// still carries its standalone Rigidbody/buoyancy) and the obsolete ShipSailSystem are stripped
@@ -32,6 +36,7 @@ namespace RumOverboard.Networking
     public class NetworkShip : NetworkBehaviour
     {
         public const int MaxLines = 16;
+        public const int MaxSails = 16;
 
         [SerializeField] private ShipBuoyancyController buoyancy;
         [SerializeField] private OceanWaveField waveField;
@@ -55,15 +60,22 @@ namespace RumOverboard.Networking
         [Networked, Capacity(MaxLines)] private NetworkArray<short> LinePin { get; }        // pin interactable index + 1
         [Networked, Capacity(MaxLines)] private NetworkArray<PlayerRef> LineHolders { get; }
         [Networked, Capacity(MaxLines)] private NetworkArray<Vector3> LineEnd { get; }      // ship-local free end
+        [Networked, Capacity(MaxLines)] private NetworkArray<byte> LineLoadNet { get; }     // load ×100 (feedback on clients)
+        [Networked, Capacity(MaxSails)] private NetworkArray<float> YardAngles { get; }     // per flat sail (deg)
 
         private Rigidbody _rb;
         private ShipRuntime _shipRuntime;
         private readonly RigLine[] _lines = new RigLine[MaxLines];
         private readonly LineInput[] _input = new LineInput[MaxLines];      // host-only, per tick
         private readonly Vector3[] _endVelocity = new Vector3[MaxLines];    // host-only, loose-end sim (ship-local)
+        private readonly float[] _lineLoad = new float[MaxLines];           // host-only, precise load
+        private readonly int[] _partner = new int[MaxLines];                // the other brace of the same yard, or -1
 
         [Header("Rigging")]
         [SerializeField] private RiggingConfig riggingConfig;
+
+        [Header("Sea interaction")]
+        [SerializeField] private WaterInteractionConfig waterInteractionConfig;
 
         public static readonly List<NetworkShip> All = new();
 
@@ -95,8 +107,11 @@ namespace RumOverboard.Networking
             _shipRuntime = new ShipRuntime(buoyancy, sailsAggregator, waveField, _rb);
             _shipRuntime.Configure(HasStateAuthority);
 
-            if (GetComponent<ShipWakeFoam>() == null)
-                FitWakeFoam(gameObject.AddComponent<ShipWakeFoam>());
+            // Sea ↔ hull: foam, bow wave, wake, splashes (cosmetic, every peer).
+            var water = GetComponent<ShipWaterInteractor>();
+            if (water == null)
+                water = gameObject.AddComponent<ShipWaterInteractor>();
+            water.Configure(waterInteractionConfig, waveField);
 
             if (TryGetComponent(out Fusion.Addons.Physics.NetworkRigidbody3D nrb))
             {
@@ -142,28 +157,6 @@ namespace RumOverboard.Networking
             InteractableIndex.Forget(Object);
         }
 
-        // Bow/stern/beam of the actual hull from its solid colliders near the waterline.
-        private void FitWakeFoam(ShipWakeFoam foam)
-        {
-            Bounds b = default;
-            bool any = false;
-            foreach (Collider c in GetComponentsInChildren<Collider>())
-            {
-                if (!c.enabled || c.isTrigger) continue;
-                Bounds local = new Bounds(transform.InverseTransformPoint(c.bounds.center), Vector3.zero);
-                local.Encapsulate(transform.InverseTransformPoint(c.bounds.min));
-                local.Encapsulate(transform.InverseTransformPoint(c.bounds.max));
-                if (!any) { b = local; any = true; } else b.Encapsulate(local);
-            }
-            if (!any || b.size.z < 12f)
-                return; // small boat: script defaults fit
-            float length = b.size.z;
-            float scale = Mathf.Clamp(length / 9f, 1f, 4f) * 0.55f;
-            foam.ConfigureHull(
-                new Vector3(b.center.x, 0f, b.max.z - length * 0.16f),
-                new Vector3(b.center.x, 0f, b.min.z + length * 0.08f),
-                Mathf.Max(1.9f, b.extents.x * 0.75f), scale);
-        }
 
         // ---------------------------------------------------------------------------------
         // Crew spawning
@@ -312,16 +305,45 @@ namespace RumOverboard.Networking
 
         public ref Vector3 EndVelocity(int i) => ref _endVelocity[i];
 
+        /// <summary>How hard the line is pulling right now (0 = slack, 1 = fully loaded, can exceed 1).</summary>
+        public float GetLineLoad(int i)
+        {
+            if (!Valid(i)) return 0f;
+            return HasStateAuthority ? _lineLoad[i] : LineLoadNet.Get(i) * 0.01f;
+        }
+
+        public void SetLineLoad(int i, float load)
+        {
+            if (!HasStateAuthority || !Valid(i)) return;
+            _lineLoad[i] = Mathf.Max(0f, load);
+            LineLoadNet.Set(i, (byte)Mathf.Clamp(Mathf.RoundToInt(load * 100f), 0, 255));
+        }
+
+        /// <summary>The other brace of the same yard (port ↔ starboard), or -1.</summary>
+        public int BracePartner(int i) => Valid(i) ? _partner[i] : -1;
+
+        /// <summary>Current yard (sail) angle around the mast, deg; + swings the starboard arm aft.</summary>
+        public float GetYardAngle(int sail) => sail >= 0 && sail < MaxSails ? YardAngles.Get(sail) : 0f;
+
+        public void SetYardAngle(int sail, float angle)
+        {
+            if (HasStateAuthority && sail >= 0 && sail < MaxSails)
+                YardAngles.Set(sail, angle);
+        }
+
         /// <summary>Host: every line back on its home pin at its initial setting.</summary>
         public void ResetLines()
         {
             if (!HasStateAuthority) return;
+            for (int s = 0; s < MaxSails; s++)
+                YardAngles.Set(s, 0f);
             for (int i = 0; i < MaxLines; i++)
             {
                 RigLine line = _lines[i];
                 LineHolders.Set(i, PlayerRef.None);
                 _endVelocity[i] = Vector3.zero;
                 _input[i] = default;
+                SetLineLoad(i, 0f);
                 if (line == null)
                 {
                     LineMode.Set(i, (byte)RigLineMode.Tied);
@@ -358,6 +380,23 @@ namespace RumOverboard.Networking
             foreach (RigLine line in GetComponentsInChildren<RigLine>(true))
                 if (Valid(line.LineIndex))
                     _lines[line.LineIndex] = line;
+
+            // Pair the two braces of every yard.
+            for (int i = 0; i < MaxLines; i++)
+            {
+                _partner[i] = -1;
+                RigLine a = _lines[i];
+                if (a == null || !a.IsBrace) continue;
+                for (int j = 0; j < MaxLines; j++)
+                {
+                    RigLine b = _lines[j];
+                    if (j != i && b != null && b.IsBrace && b.Kind != a.Kind && b.SailIndex == a.SailIndex)
+                    {
+                        _partner[i] = j;
+                        break;
+                    }
+                }
+            }
         }
 
         // ---------------------------------------------------------------------------------
@@ -381,6 +420,7 @@ namespace RumOverboard.Networking
             if (waveField != null)
                 OceanTime = waveField.OceanTimeNow;
 
+            YardSystem.Tick(this, sailsAggregator, dt, Runner.SimulationTime); // loads + yard swing first
             RopeSystem.Tick(this, dt);
             RopeSystem.Apply(this, sailsAggregator);
 

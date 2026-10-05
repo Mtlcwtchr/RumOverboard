@@ -91,5 +91,40 @@ namespace RumOverboard.Core
 
         [Tooltip("Per-second recovery from a knockout (ragdoll=1) back down to the drunkenness baseline.")]
         public float RagdollRecoverRate = 0.4f;
+
+        [Tooltip("Ragdoll amount at which the body goes fully physical (knockout). Below it the ragdoll is " +
+                 "PARTIAL: you stay animated and in control, the body just sways.")]
+        [Range(0.1f, 1f)] public float RagdollKnockoutThreshold = 0.85f;
+
+        [Tooltip("A knocked-out body gets back up once the amount falls below this (hysteresis).")]
+        [Range(0f, 1f)] public float RagdollReleaseThreshold = 0.7f;
+
+        [Tooltip("Control lost at the knockout threshold (quadratic below it): 0.1 ragdoll ≈ 0.4% control loss.")]
+        [Range(0f, 1f)] public float PartialRagdollMaxControlLoss = 0.3f;
+
+        [Tooltip("Partial ragdoll: peak body sway (deg) at the knockout threshold.")]
+        public float DrunkSwayDegrees = 16f;
+
+        [Tooltip("Partial ragdoll: sway speed.")]
+        public float DrunkSwayFrequency = 0.55f;
+
+        [Tooltip("First-person camera roll/yaw sway (deg) at full intoxication.")]
+        public float DrunkCameraSway = 3.5f;
+
+        /// <summary>
+        /// How much of the controls the crew member keeps for a given ragdoll amount: barely any loss
+        /// for a partial ragdoll, sliding to zero across the knockout range.
+        /// </summary>
+        public float ControlAuthorityFor(float ragdoll)
+        {
+            float k = Mathf.Max(0.05f, RagdollKnockoutThreshold);
+            if (ragdoll < k)
+            {
+                float t = ragdoll / k;
+                return 1f - PartialRagdollMaxControlLoss * t * t;
+            }
+            float u = Mathf.Clamp01((ragdoll - k) / Mathf.Max(0.01f, 1f - k));
+            return Mathf.Lerp(1f - PartialRagdollMaxControlLoss, 0f, Mathf.Max(u, 0.6f));
+        }
     }
 }

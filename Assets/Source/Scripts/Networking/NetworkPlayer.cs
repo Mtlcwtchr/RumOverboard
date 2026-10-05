@@ -171,10 +171,24 @@ namespace RumOverboard.Networking
         /// <summary>Body position at the rendered pose (third-person pivot).</summary>
         public Vector3 RenderPosition => _renderRoot != null ? _renderRoot.position : transform.position;
 
-        /// <summary>True once the ragdoll has taken (nearly) full control — a knockout.</summary>
-        public bool IsKnockedOut => State.RagdollControl >= 0.9f;
+        /// <summary>True once the ragdoll has taken over the body — a knockout (a partial ragdoll is not).</summary>
+        public bool IsKnockedOut =>
+            State.RagdollControl >= (config != null ? config.RagdollKnockoutThreshold : 0.85f) ||
+            (ragdoll != null && ragdoll.IsPhysical);
 
         public float Drunkenness => State.Drunkenness;
+        public GameConfig Config => config;
+
+        /// <summary>Host / debug: overwrite intoxication and ragdoll amount directly.</summary>
+        public void DebugSetDrunkRagdoll(float drunkenness, float ragdoll)
+        {
+            if (!HasStateAuthority) return;
+            var s = State;
+            s.Drunkenness = Mathf.Clamp01(drunkenness);
+            s.RagdollControl = Mathf.Clamp01(ragdoll);
+            State = s;
+            if (_ctx != null) _ctx.Drunkenness = s.Drunkenness;
+        }
         public float RagdollControl => State.RagdollControl;
         public float ViewYaw => State.LookYaw;
         public float ViewPitch => State.LookPitch;
@@ -415,7 +429,9 @@ namespace RumOverboard.Networking
             NetworkButtons pressed = input.Buttons.GetPressed(PreviousButtons);
             PreviousButtons = input.Buttons;
 
-            _ctx.ControlAuthority = 1f - s.RagdollControl;
+            // A partial ragdoll (drunk sway, small hits) barely touches the controls; only a knockout
+            // takes them away (GameConfig.ControlAuthorityFor).
+            _ctx.ControlAuthority = config != null ? config.ControlAuthorityFor(s.RagdollControl) : 1f - s.RagdollControl;
             _ctx.Move = input.Move * _ctx.ControlAuthority;
             _ctx.LookYaw = ResolveWorldYaw(input);
             _ctx.LookPitch = Mathf.Clamp(input.LookPitch, -89f, 89f);
@@ -767,7 +783,12 @@ namespace RumOverboard.Networking
             ApplyAnimatorParamsFromState(s);
 
             if (ragdoll != null)
+            {
+                if (config != null)
+                    ragdoll.Configure(config.RagdollKnockoutThreshold, config.RagdollReleaseThreshold,
+                        config.DrunkSwayDegrees, config.DrunkSwayFrequency);
                 ragdoll.SetAmount(s.RagdollControl);
+            }
 
             if (jumpCollider != null)
                 jumpCollider.SetTuck(s.TuckAmount);

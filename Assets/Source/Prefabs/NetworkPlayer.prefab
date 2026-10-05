@@ -188,6 +188,10 @@ MonoBehaviour:
   rootBody: {fileID: 6064721864693198259}
   restoreStrength: 25
   maxAngularVelocity: 20
+  physicalThreshold: 0.85
+  releaseThreshold: 0.7
+  swayDegrees: 16
+  swayFrequency: 0.55
 --- !u!114 &8055694700671648536
 MonoBehaviour:
   m_ObjectHideFlags: 0

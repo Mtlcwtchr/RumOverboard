@@ -72,6 +72,7 @@ namespace RumOverboard.Gameplay.UI
                         new ControlHint("ЛКМ", "Выбирать канат (поднять / подтянуть)"),
                         new ControlHint("ПКМ", "Травить"),
                         new ControlHint("Отойти", "Натянуть — уходя от мачты, тоже выбираешь"),
+                        new ControlHint("Брас", "Выбираешь один — второй потрави / отдай"),
                         new ControlHint("E на нагель", "Завязать"),
                         new ControlHint("G", "Бросить конец"),
                     },
@@ -92,7 +93,7 @@ namespace RumOverboard.Gameplay.UI
                     State = PlayerState.Steering,
                     Hints = new[]
                     {
-                        new ControlHint("A / D", "Крутить штурвал"),
+                        new ControlHint("A / D", "Крутить штурвал (на ходу — тяжело)"),
                         new ControlHint("E", "Отойти от штурвала"),
                     },
                 },

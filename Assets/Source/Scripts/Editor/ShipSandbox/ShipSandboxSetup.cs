@@ -58,8 +58,17 @@ namespace RumOverboard.EditorTools.ShipSandbox
             PreparePlayerPrefab();
             OceanLookSetup.ApplyMaterial();
             BuildScene();
-            BuildScene(RiggingScenePath, "Calm", riggingDebugOpen: true);
+            BuildFeatureScenes();
             Debug.Log("[ShipSandbox] Done. Open Assets/Scenes/ShipSandbox.unity and press Play.");
+        }
+
+        [MenuItem("RumOverboard/Ship Sandbox/Build Feature Scenes (Rigging, Water, Helm, Crew)", priority = 22)]
+        public static void BuildFeatureScenesMenu()
+        {
+            if (!ConfirmScenes()) return;
+            EnsureLayers();
+            OceanLookSetup.ApplyMaterial();
+            BuildFeatureScenes();
         }
 
         [MenuItem("RumOverboard/Ship Sandbox/Prepare Ship + Player Prefabs", priority = 20)]
@@ -400,8 +409,10 @@ namespace RumOverboard.EditorTools.ShipSandbox
             int count = sails.arraySize;
             string mastName = PrettyMastName(module.name);
 
-            int portRail = PlanPinRail(plan, modulePath, axis, radius, mastDeck, -1f, count + 2, $"{mastName}: фалы");
-            int starRail = PlanPinRail(plan, modulePath, axis, radius, mastDeck, +1f, count + 2, $"{mastName}: шкоты");
+            // Port rail: halyards + port braces. Starboard rail: starboard braces. Each yardarm has
+            // its own brace (a real square-rigger braces a yard from both sides).
+            int portRail = PlanPinRail(plan, modulePath, axis, radius, mastDeck, -1f, count * 2 + 2, $"{mastName}: фалы, левые брасы");
+            int starRail = PlanPinRail(plan, modulePath, axis, radius, mastDeck, +1f, count + 2, $"{mastName}: правые брасы");
 
             for (int s = 0; s < count; s++, flatSail++)
             {
@@ -410,7 +421,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 string sailName = sail.FindPropertyRelative("name").stringValue;
                 string label = PrettySailName(string.IsNullOrEmpty(visual) ? sailName : visual);
                 Transform topLeft = module.FindAnchor($"{visual}_TopLeft") ?? module.FindAnchor("MastTop");
-                Transform bottomRight = module.FindAnchor($"{visual}_BottomRight") ?? module.FindAnchor("MastTop");
+                Transform topRight = module.FindAnchor($"{visual}_TopRight") ?? module.FindAnchor("MastTop");
 
                 if (portRail >= 0 && lineIndex < NetworkShip.MaxLines)
                     plan.Lines.Add(new LinePlan
@@ -418,15 +429,24 @@ namespace RumOverboard.EditorTools.ShipSandbox
                         Line = lineIndex++, Kind = RigLineKind.Halyard, Sail = flatSail, Name = $"фал ({label})",
                         ModulePath = modulePath, Rail = portRail, Pin = s,
                         Block = axis + Vector3.left * (radius + 0.07f) + Vector3.up * (mastDeck + 3.0f + s * 0.35f),
-                        Aloft = topLeft != null ? topLeft.position : mastTop, Initial = 0f,
+                        Aloft = topLeft != null ? Vector3.Lerp(topLeft.position, topRight != null ? topRight.position : topLeft.position, 0.5f) : mastTop,
+                        Initial = 0f,
+                    });
+                if (portRail >= 0 && lineIndex < NetworkShip.MaxLines)
+                    plan.Lines.Add(new LinePlan
+                    {
+                        Line = lineIndex++, Kind = RigLineKind.BracePort, Sail = flatSail, Name = $"левый брас ({label})",
+                        ModulePath = modulePath, Rail = portRail, Pin = count + s,
+                        Block = axis + Vector3.left * (radius + 0.07f) + Vector3.back * 0.12f + Vector3.up * (mastDeck + 2.3f + s * 0.35f),
+                        Aloft = topLeft != null ? topLeft.position : mastTop, Initial = 0.5f,
                     });
                 if (starRail >= 0 && lineIndex < NetworkShip.MaxLines)
                     plan.Lines.Add(new LinePlan
                     {
-                        Line = lineIndex++, Kind = RigLineKind.Sheet, Sail = flatSail, Name = $"шкот ({label})",
+                        Line = lineIndex++, Kind = RigLineKind.BraceStarboard, Sail = flatSail, Name = $"правый брас ({label})",
                         ModulePath = modulePath, Rail = starRail, Pin = s,
-                        Block = axis + Vector3.right * (radius + 0.07f) + Vector3.up * (mastDeck + 2.4f + s * 0.35f),
-                        Aloft = bottomRight != null ? bottomRight.position : mastTop, Initial = 0.5f,
+                        Block = axis + Vector3.right * (radius + 0.07f) + Vector3.back * 0.12f + Vector3.up * (mastDeck + 2.3f + s * 0.35f),
+                        Aloft = topRight != null ? topRight.position : mastTop, Initial = 0.5f,
                     });
             }
         }
@@ -710,6 +730,13 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 return;
             }
 
+            {
+                var feelSo = new SerializedObject(helm);
+                SerializedProperty feel = feelSo.FindProperty("feelConfig");
+                if (feel != null) feel.objectReferenceValue = EnsureHelmFeelConfig();
+                feelSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
             if (root.GetComponentInChildren<HelmStation>(true) != null &&
                 new SerializedObject(helm).FindProperty("wheelModel").objectReferenceValue != null)
                 return; // built from parts: wheel, stand and helm zone already wired
@@ -901,14 +928,50 @@ namespace RumOverboard.EditorTools.ShipSandbox
 
         private const string RiggingConfigPath = "Assets/Source/Configs/FeatureScenes/RiggingFeatureConfig.asset";
 
-        public static RiggingConfig EnsureRiggingConfig()
+        public static RiggingConfig EnsureRiggingConfig() => EnsureConfig<RiggingConfig>(RiggingConfigPath);
+
+        public const string HelmFeelConfigPath = "Assets/Source/Configs/FeatureScenes/HelmFeelConfig.asset";
+        public const string WaterInteractionConfigPath = "Assets/Source/Configs/FeatureScenes/WaterInteractionConfig.asset";
+
+        public static RumOverboard.Gameplay.Ocean.Features.Helm.HelmFeelConfig EnsureHelmFeelConfig() =>
+            EnsureConfig<RumOverboard.Gameplay.Ocean.Features.Helm.HelmFeelConfig>(HelmFeelConfigPath);
+
+        public static RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionConfig EnsureWaterInteractionConfig() =>
+            EnsureConfig<RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionConfig>(WaterInteractionConfigPath);
+
+        private const string SplashPrefabPath = "Assets/NamuFX/StylizedWaterEffects/Prefabs/Water_Splash_A.prefab";
+
+        /// <summary>Water interaction config with its sim shader + splash effect wired.</summary>
+        public static RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionConfig PrepareWaterInteractionConfig()
         {
-            var cfg = AssetDatabase.LoadAssetAtPath<RiggingConfig>(RiggingConfigPath);
+            var cfg = EnsureWaterInteractionConfig();
+            bool dirty = false;
+            if (cfg.SimShader == null)
+            {
+                cfg.SimShader = Shader.Find("Hidden/RumOverboard/WaterInteractionSim");
+                dirty = true;
+            }
+            if (cfg.SplashPrefab == null)
+            {
+                cfg.SplashPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(SplashPrefabPath);
+                dirty = true;
+            }
+            if (dirty)
+            {
+                EditorUtility.SetDirty(cfg);
+                AssetDatabase.SaveAssets();
+            }
+            return cfg;
+        }
+
+        private static T EnsureConfig<T>(string path) where T : ScriptableObject
+        {
+            var cfg = AssetDatabase.LoadAssetAtPath<T>(path);
             if (cfg != null) return cfg;
             if (!AssetDatabase.IsValidFolder("Assets/Source/Configs/FeatureScenes"))
                 AssetDatabase.CreateFolder("Assets/Source/Configs", "FeatureScenes");
-            cfg = ScriptableObject.CreateInstance<RiggingConfig>();
-            AssetDatabase.CreateAsset(cfg, RiggingConfigPath);
+            cfg = ScriptableObject.CreateInstance<T>();
+            AssetDatabase.CreateAsset(cfg, path);
             AssetDatabase.SaveAssets();
             return cfg;
         }
@@ -1029,6 +1092,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 var so = new SerializedObject(ship);
                 SerializedProperty cfg = so.FindProperty("riggingConfig");
                 if (cfg != null) cfg.objectReferenceValue = EnsureRiggingConfig();
+                SerializedProperty water = so.FindProperty("waterInteractionConfig");
+                if (water != null) water.objectReferenceValue = PrepareWaterInteractionConfig();
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
         }
@@ -1130,11 +1195,24 @@ namespace RumOverboard.EditorTools.ShipSandbox
         // Scene
         // =========================================================================================
         public const string RiggingScenePath = "Assets/Scenes/RiggingScene.unity";
+        public const string WaterScenePath = "Assets/Scenes/WaterInteractionScene.unity";
+        public const string HelmScenePath = "Assets/Scenes/HelmScene.unity";
+        public const string CrewScenePath = "Assets/Scenes/CrewRagdollScene.unity";
 
-        public static void BuildScene() => BuildScene(ScenePath, "Moderate", riggingDebugOpen: false);
+        public static void BuildScene() => BuildScene(ScenePath, "Moderate", null);
+
+        /// <summary>Isolated feature scenes: each opens its own debug window, with the sea it needs.</summary>
+        public static void BuildFeatureScenes()
+        {
+            BuildScene(RiggingScenePath, "Calm", DebugRigging);
+            BuildScene(WaterScenePath, "Storm", DebugWater);
+            BuildScene(HelmScenePath, "Moderate", DebugHelm);
+            BuildScene(CrewScenePath, "Calm", DebugCrew);
+        }
 
         /// <param name="seaState">OceanSeaStateProfile asset name fragment the scene starts in.</param>
-        public static void BuildScene(string scenePath, string seaState, bool riggingDebugOpen)
+        /// <param name="openDebug">Which debug window starts open (DebugRigging / DebugWater / …), or null.</param>
+        public static void BuildScene(string scenePath, string seaState, string openDebug)
         {
             ControlHintsConfig hints = EnsureHintsAsset();
 
@@ -1240,16 +1318,38 @@ namespace RumOverboard.EditorTools.ShipSandbox
             ambience.AddComponent<AudioSource>();
             ambience.AddComponent<OceanAmbience>();
 
-            var debugGo = new GameObject("RiggingDebug");
+            var debugGo = new GameObject("FeatureDebug");
             SceneManager.MoveGameObjectToScene(debugGo, scene);
-            var debugWindow = debugGo.AddComponent<RiggingDebugWindow>();
-            var dso = new SerializedObject(debugWindow);
-            dso.FindProperty("visible").boolValue = riggingDebugOpen;
-            dso.ApplyModifiedPropertiesWithoutUndo();
+            AddDebugWindow<RiggingDebugWindow>(debugGo, openDebug == DebugRigging);
+            AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionDebugWindow>(debugGo, openDebug == DebugWater);
+            AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.Helm.HelmDebugWindow>(debugGo, openDebug == DebugHelm);
+            AddDebugWindow<RumOverboard.Gameplay.Crew.CrewRagdollDebugWindow>(debugGo, openDebug == DebugCrew);
+
+            // Sea ↔ hull interaction map (follows the camera; ships write foam / bow waves into it).
+            var mapGo = new GameObject("WaterInteractionMap");
+            SceneManager.MoveGameObjectToScene(mapGo, scene);
+            var map = mapGo.AddComponent<RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionMap>();
+            var mso = new SerializedObject(map);
+            SetRef(mso, "config", PrepareWaterInteractionConfig());
+            mso.ApplyModifiedPropertiesWithoutUndo();
 
             EditorSceneManager.SaveScene(scene, scenePath);
             AddToBuildSettings(scenePath);
-            Debug.Log($"[ShipSandbox] Scene saved: {scenePath} (sea: {seaState})");
+            Debug.Log($"[ShipSandbox] Scene saved: {scenePath} (sea: {seaState}, debug open: {openDebug ?? "-"})");
+        }
+
+        public const string DebugRigging = "rigging";
+        public const string DebugWater = "water";
+        public const string DebugHelm = "helm";
+        public const string DebugCrew = "crew";
+
+        private static void AddDebugWindow<T>(GameObject host, bool open) where T : MonoBehaviour
+        {
+            var w = host.AddComponent<T>();
+            var so = new SerializedObject(w);
+            SerializedProperty visible = so.FindProperty("visible");
+            if (visible != null) visible.boolValue = open;
+            so.ApplyModifiedPropertiesWithoutUndo();
         }
 
         private static ControlHintsConfig EnsureHintsAsset()

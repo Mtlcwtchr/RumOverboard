@@ -43,6 +43,15 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
         _CrestHeight ("Crest Height Reference (m)", Float) = 1.5
         _HorizonColor ("Horizon Tint", Color) = (0.55, 0.68, 0.78, 1)
         _FoamNoiseScale ("Foam Noise Scale", Float) = 0.35
+
+        [Header(Foam texture and ship interaction)]
+        _FoamTex ("Foam Pattern (R)", 2D) = "white" {}
+        _FoamTiling ("Foam Tiling", Float) = 0.11
+        _FoamSharpness ("Foam Edge Sharpness", Range(1,16)) = 4
+        _InteractionFoamStrength ("Wake / Hull Foam Strength", Range(0,2)) = 1
+        _IntersectionFoamDepth ("Hull Contact Foam Depth (m)", Float) = 0.55
+        _IntersectionFoamStrength ("Hull Contact Foam", Range(0,1)) = 0.75
+        _AeratedTint ("Aerated Water Tint (wake)", Range(0,1)) = 0.35
     }
 
     SubShader
@@ -114,6 +123,12 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
             float _CrestHeight;
             float4 _HorizonColor;
             float _FoamNoiseScale;
+            float _FoamTiling;
+            float _FoamSharpness;
+            float _InteractionFoamStrength;
+            float _IntersectionFoamDepth;
+            float _IntersectionFoamStrength;
+            float _AeratedTint;
             int _WaveCount;
             CBUFFER_END
 
@@ -122,6 +137,53 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
 
             TEXTURE2D(_DetailNormal);
             SAMPLER(sampler_DetailNormal);
+            TEXTURE2D(_FoamTex);
+            SAMPLER(sampler_FoamTex);
+
+            // Ship ↔ water interaction map (WaterInteractionMap): R foam, G height, B vertical velocity.
+            TEXTURE2D(_WaterInteractionTex);
+            SAMPLER(sampler_WaterInteractionTex);
+            float4 _WaterInteractionRect;   // minX, minZ, 1/size, enabled
+            float4 _WaterInteractionParams; // displacement scale, normal strength, texel (m), 0
+
+            float4 SampleInteraction(float2 worldXZ)
+            {
+                if (_WaterInteractionRect.w < 0.5)
+                    return 0;
+                float2 uv = (worldXZ - _WaterInteractionRect.xy) * _WaterInteractionRect.z;
+                if (uv.x <= 0 || uv.y <= 0 || uv.x >= 1 || uv.y >= 1)
+                    return 0;
+                return SAMPLE_TEXTURE2D_LOD(_WaterInteractionTex, sampler_WaterInteractionTex, uv, 0);
+            }
+
+            // Slope of the interaction displacement (central differences, one texel apart).
+            float2 InteractionSlope(float2 worldXZ)
+            {
+                float t = max(0.02, _WaterInteractionParams.z);
+                float hL = SampleInteraction(worldXZ - float2(t, 0)).g;
+                float hR = SampleInteraction(worldXZ + float2(t, 0)).g;
+                float hD = SampleInteraction(worldXZ - float2(0, t)).g;
+                float hU = SampleInteraction(worldXZ + float2(0, t)).g;
+                return float2(hR - hL, hU - hD) / (2.0 * t) * (_WaterInteractionParams.x * _WaterInteractionParams.y);
+            }
+
+            // Two scrolling layers of the foam texture: a lacy bubble net.
+            float FoamPattern(float2 worldXZ)
+            {
+                float2 uv0 = worldXZ * _FoamTiling + float2(_OceanTime * 0.021, _OceanTime * 0.013);
+                float2 uv1 = worldXZ * (_FoamTiling * 2.37) + float2(-_OceanTime * 0.017, _OceanTime * 0.026);
+                float a = SAMPLE_TEXTURE2D(_FoamTex, sampler_FoamTex, uv0).r;
+                float b = SAMPLE_TEXTURE2D(_FoamTex, sampler_FoamTex, uv1).r;
+                return saturate(a * 0.62 + b * 0.48);
+            }
+
+            // Coverage mask (0..1) → visible foam: low coverage = thin lace on the brightest bubbles,
+            // high coverage = solid white water.
+            float FoamFromMask(float mask, float pattern)
+            {
+                mask = saturate(mask);
+                return saturate((pattern - (1.0 - mask)) * _FoamSharpness + mask * mask * 0.55);
+            }
 
             struct Attributes
             {
@@ -208,9 +270,13 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float3 disp = GerstnerDisplacement(worldPos.xz, waveFade);
                 worldPos += disp;
 
+                // Hull-driven displacement: bow wave, quarter trough, ripples running off the hull.
+                float interactionH = SampleInteraction(worldPos.xz).g * _WaterInteractionParams.x;
+                worldPos.y += interactionH;
+
                 o.positionCS = TransformWorldToHClip(worldPos);
                 o.fogFactor = ComputeFogFactor(o.positionCS.z);
-                o.waveHeight = disp.y;
+                o.waveHeight = disp.y + interactionH;
                 o.worldPos = worldPos;
                 o.worldNormal = float3(0, 1, 0); // fragment rebuilds the normal from the wave slope
                 o.screenPos = ComputeScreenPos(o.positionCS);
@@ -300,6 +366,10 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 slope *= detailFade;
                 crestFoam *= detailFade;
 
+                // Ship interaction: foam coverage + the hull's own waves tilt the surface.
+                float4 interaction = SampleInteraction(i.worldPos.xz);
+                slope += InteractionSlope(i.worldPos.xz);
+
                 float3 normal = BuildStylizedNormal(normalize(i.worldNormal), slope, i.worldPos.xz, detailFade);
 
                 Light mainLight = GetMainLight();
@@ -320,6 +390,9 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 // Crests are thinner water: lift them toward the subsurface colour (reads as volume).
                 float crestT = saturate(i.waveHeight / max(0.05, _CrestHeight));
                 waterColor = lerp(waterColor, _SubsurfaceColor.rgb, crestT * crestT * _CrestLift * 0.5);
+
+                // Churned, aerated water in the wake reads lighter / more turquoise under the foam.
+                waterColor = lerp(waterColor, _SubsurfaceColor.rgb * 1.35, saturate(interaction.r * 1.3) * _AeratedTint);
 
                 // --- Refraction: nudge the opaque scene behind the water, strongest in shallows ---
                 float2 refractOffset = normal.xz * _RefractionStrength * (1.0 - depthFade);
@@ -348,26 +421,31 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float sss = pow(back, 3.0) * (crestFoam + shallow01 * 0.5) * _SubsurfaceStrength;
                 lit += _SubsurfaceColor.rgb * mainLight.color * sss;
 
-                // --- Foam: shoreline + crest whitecaps on steep/tall wave faces, mottled by a
-                //     moving breakup so the caps look churned rather than a flat wash ---
+                // --- Foam: shoreline + crest whitecaps + hull contact + wakes (interaction map),
+                //     all rendered through the same foam texture so they read as one material ---
                 float shoreFoam = (1.0 - depthFade) * _FoamIntensity;
                 float slopeMag = length(slope);
                 float whitecap = saturate((slopeMag - 0.30) * 1.6) * detailFade;
                 float2 foamUV = i.worldPos.xz * _FoamNoiseScale + float2(_OceanTime * 0.05, -_OceanTime * 0.03);
                 float breakup = saturate((FoamNoise(foamUV) - 0.35) * 2.2);
-                whitecap *= breakup;
-                float foam = saturate(shoreFoam * breakup + (crestFoam + whitecap * _FoamIntensity) * breakup);
-                lit += _FoamColor.rgb * foam;
+                float crestMask = saturate((crestFoam + whitecap * _FoamIntensity) * (0.4 + 0.6 * breakup));
+                float contactMask = (1.0 - saturate(depthDiff / max(0.01, _IntersectionFoamDepth))) * _IntersectionFoamStrength;
+                float wakeMask = interaction.r * _InteractionFoamStrength;
+                float foamMask = max(max(crestMask, shoreFoam * breakup * 0.6), max(contactMask, wakeMask));
+                float foam = FoamFromMask(foamMask, FoamPattern(i.worldPos.xz)) * lerp(0.35, 1.0, detailFade);
 
-                // --- Sun glint ---
-                float spec = pow(ndh, _SpecularPower) * _Gloss;
+                float3 foamLit = _FoamColor.rgb * (ambient + mainLight.color * (0.55 + 0.45 * ndl) * mainLight.shadowAttenuation);
+                lit = lerp(lit, foamLit, foam * 0.92);
+
+                // --- Sun glint (foam is matte) ---
+                float spec = pow(ndh, _SpecularPower) * _Gloss * (1.0 - foam);
                 lit += lerp(float3(0.4, 0.5, 0.65), float3(1.0, 1.0, 1.0), fresnel) * spec * mainLight.color;
                 // Tight glitter lobe on the fine ripples: the sparkle path toward the sun.
-                float glitter = pow(ndh, _GlitterPower) * _GlitterStrength * detailFade;
+                float glitter = pow(ndh, _GlitterPower) * _GlitterStrength * detailFade * (1.0 - foam);
                 lit += glitter * mainLight.color * mainLight.shadowAttenuation;
 
                 float alpha = lerp(_TransparencyMin, _TransparencyMax, depthFade);
-                alpha = saturate(alpha + foam * 0.15 + fresnel * 0.1);
+                alpha = saturate(alpha + foam * 0.6 + fresnel * 0.1);
 
                 lit = MixFog(lit, i.fogFactor);
                 return half4(lit, alpha);

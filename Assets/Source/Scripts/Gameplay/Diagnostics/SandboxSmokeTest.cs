@@ -76,8 +76,109 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Run(ClimbMast());
             yield return Run(Helm());
             yield return Run(Rope());
+            yield return Run(Braces());
+            yield return Run(PartialRagdoll());
             yield return Run(IdleWhileSailing());
             Finish();
+        }
+
+        // Two braces per yard: hauling one against a tied partner is blocked; with the partner
+        // loose it runs out and the yard's range moves.
+        private IEnumerator Braces()
+        {
+            _ship.ResetLines();
+            yield return Wait(0.5f);
+            RigLine port = null, star = null;
+            for (int l = 0; l < NetworkShip.MaxLines; l++)
+            {
+                RigLine line = _ship.Line(l);
+                if (line == null || line.SailIndex != 0) continue;
+                if (line.Kind == RigLineKind.BracePort) port = line;
+                if (line.Kind == RigLineKind.BraceStarboard) star = line;
+            }
+            if (port == null || star == null) { Fail("braces: sail #0 has no port+starboard brace pair"); yield break; }
+            int p = port.LineIndex, s = star.LineIndex;
+            Check(_ship.BracePartner(p) == s && _ship.BracePartner(s) == p, "braces: port/starboard braces are paired");
+            Check(_ship.GetLineMode(p) == RigLineMode.Tied && _ship.GetLineMode(s) == RigLineMode.Tied, "braces: both start made fast");
+
+            // 1) Cast off the port brace and haul: the tied starboard brace stops the yard.
+            yield return TakeFromPin(port.HomePin, port);
+            Check(_ship.GetLineMode(p) == RigLineMode.Held, "braces: E casts the port brace off into your hands");
+            float out0 = _ship.GetLineOut(p);
+            _input = default;
+            _input.Buttons.Set(NetworkInputData.ButtonHaul, true);
+            yield return Wait(1.2f);
+            _input = default;
+            float out1 = _ship.GetLineOut(p);
+            Log($"braces: haul port vs tied starboard: out {out0:F2} → {out1:F2}, load {_ship.GetLineLoad(p):F2}");
+            Check(out1 <= out0 + 0.05f, "braces: can't haul one brace while the other is made fast");
+
+            // 2) Let the port brace go, take the starboard one and haul: the loose port runs out.
+            _input.Buttons.Set(NetworkInputData.ButtonDrop, true);
+            yield return Wait(0.1f);
+            _input = default;
+            yield return Wait(0.3f);
+            Check(_ship.GetLineMode(p) == RigLineMode.Loose, "braces: G lets the port brace go");
+            YardSystem.Limits(_ship, p, s, star.BraceMaxAngle, out float lo0, out _);
+            yield return TakeFromPin(star.HomePin, star);
+            float sOut0 = _ship.GetLineOut(s), pOut0 = _ship.GetLineOut(p);
+            _input = default;
+            _input.Buttons.Set(NetworkInputData.ButtonHaul, true);
+            yield return Wait(1.5f);
+            _input = default;
+            yield return Wait(0.2f);
+            float sOut1 = _ship.GetLineOut(s), pOut1 = _ship.GetLineOut(p);
+            YardSystem.Limits(_ship, p, s, star.BraceMaxAngle, out float lo1, out float hi1);
+            float yard = _ship.GetYardAngle(0);
+            Log($"braces: haul starboard: out {sOut0:F2} → {sOut1:F2}, loose port {pOut0:F2} → {pOut1:F2}, yard range lo {lo0:F0}° → {lo1:F0}° (hi {hi1:F0}°), yard {yard:F0}°");
+            Check(sOut1 > sOut0 + 0.5f, "braces: with the partner cast off the brace hauls");
+            Check(pOut1 <= pOut0 + 0.01f, "braces: the loose partner gives (never gains rope)");
+            Check(lo1 > lo0 + 5f, "braces: hauling the starboard brace swings the yard's range to starboard");
+            Check(yard >= lo1 - 1f && yard <= hi1 + 1f, $"braces: yard ({yard:F0}°) stays inside what the braces allow");
+
+            _ship.ResetLines();
+            yield return Wait(0.5f);
+            Check(!Has(PlayerState.HoldingRope), "braces: reset takes the line out of your hands");
+        }
+
+        private IEnumerator TakeFromPin(BelayPin pin, RigLine line)
+        {
+            Vector3 railOut = Vector3.ProjectOnPlane(pin.transform.position - line.Block.position, Vector3.up).normalized;
+            yield return PlaceAt(pin.transform.position + railOut * 0.75f + Vector3.down * 0.85f + Vector3.up * 0.1f,
+                Quaternion.LookRotation(-railOut, Vector3.up));
+            yield return Press(pin.Ref);
+        }
+
+        // A small ragdoll amount (a few sips) must NOT floor the crew member: still animated,
+        // still walking. Only a knockout goes fully physical, and it gets back up.
+        private IEnumerator PartialRagdoll()
+        {
+            if (_ship.TryGetCrewSpawn(0, out Vector3 pos, out Quaternion rot))
+                yield return PlaceAt(pos + Vector3.up * 0.1f, rot);
+            _player.DebugSetDrunkRagdoll(0.3f, 0.1f);
+            yield return Wait(0.8f);
+            Check(!_player.IsKnockedOut, $"ragdoll: 10% ragdoll (drunk 30%) is not a knockout (amount {_player.RagdollControl:F2})");
+            var ragdoll = _player.GetComponentInChildren<RagdollController>();
+            Check(ragdoll == null || !ragdoll.IsPhysical, "ragdoll: partial ragdoll keeps the body animated (bones kinematic)");
+
+            Vector3 start = ShipLocal(_player.transform.position);
+            _input = default;
+            _input.LookSpace = default;
+            _input.LookYaw = _ship.transform.eulerAngles.y;
+            _input.Move = new Vector2(0f, 1f);
+            yield return Wait(1.5f);
+            _input = default;
+            float moved = Vector3.Distance(start, ShipLocal(_player.transform.position));
+            Log($"ragdoll: walked {moved:F2}m at ragdoll {_player.RagdollControl:F2}, grounded={Has(PlayerState.Grounded)}");
+            Check(moved > 1.5f && Has(PlayerState.Grounded), "ragdoll: still on your feet and walking with a partial ragdoll");
+
+            _player.Knockout();
+            yield return Wait(0.3f);
+            Check(_player.IsKnockedOut, "ragdoll: knockout goes fully physical");
+            yield return Wait(3f);
+            Check(!_player.IsKnockedOut, "ragdoll: gets back up after a knockout");
+            _player.DebugSetDrunkRagdoll(0f, 0f);
+            yield return Wait(1f);
         }
 
         private IEnumerator Run(IEnumerator step)
@@ -300,6 +401,8 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Press(station.Ref);
             Check(Has(PlayerState.Steering), "helm: Interact → Steering");
             float before = station.Helm.WheelAngle;
+            Check(Mathf.Abs(before) < station.Helm.MaxWheelDegrees * 0.6f,
+                $"helm: an unmanned wheel doesn't wind itself onto its stop at rest ({before:F0}°)");
             _input = default;
             _input.Move = new Vector2(1f, 0f);
             yield return Wait(1f);
@@ -308,6 +411,13 @@ namespace RumOverboard.Gameplay.Diagnostics
             Log($"helm: wheel {before:F0}° → {after:F0}°, occupant={station.Helm.Occupant}, stand error {standErr:F2}m");
             Check(Mathf.Abs(after - before) > 30f, "helm: A/D turns the wheel");
             Check(standErr < 0.3f, $"helm: glued to the stand ({standErr:F2} < 0.3m)");
+            _input = default;
+            yield return Wait(0.5f);
+            float held0 = station.Helm.WheelAngle;
+            yield return Wait(1f);
+            float held1 = station.Helm.WheelAngle;
+            Log($"helm: hands on, no input: wheel {held0:F0}° → {held1:F0}° (spin {station.Helm.WheelVelocity:F0}°/s, load {station.Helm.Load:F2})");
+            Check(Mathf.Abs(held1 - held0) < 90f, "helm: the helmsman holds the wheel when not steering");
             _input = default;
             yield return Press(default);
             Check(!Has(PlayerState.Steering) && !station.Helm.IsOccupied, "helm: Interact again releases the wheel");

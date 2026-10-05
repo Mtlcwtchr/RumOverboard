@@ -36,6 +36,32 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         [Tooltip("Extra reach (m) when making a line fast on a pin a bit farther than the rope allows.")]
         public float TieSlack = 0.6f;
 
+        [Header("Load (how heavy a line feels)")]
+        [Tooltip("Sail wind force (N) that counts as a fully loaded line (load = 1).")]
+        public float FullLoadForce = 3500f;
+        [Tooltip("Halyard load from the yard + canvas weight alone at full hoist (0..1).")]
+        [Range(0f, 1f)] public float HalyardWeight = 0.3f;
+        [Tooltip("Share of the sail's wind force a halyard carries.")]
+        [Range(0f, 1f)] public float HalyardWindShare = 0.5f;
+        [Tooltip("Haul speed multiplier at full load (hand over hand gets slow when the sail pulls).")]
+        [Range(0.02f, 1f)] public float HeavyHaulFactor = 0.22f;
+        [Tooltip("Extra easing speed per unit of load (the load takes the rope).")]
+        public float EaseLoadBoost = 1.2f;
+        [Tooltip("Load a crew member can hold without the rope slipping through the hands.")]
+        public float HoldGrip = 0.8f;
+        [Tooltip("Slip speed (m/s) per unit of load above the grip.")]
+        public float SlipRate = 2.2f;
+
+        [Header("Braces / yard")]
+        [Tooltip("Yard swing speed (deg/s) with no wind.")]
+        public float YardSwingRate = 12f;
+        [Tooltip("Extra yard swing speed (deg/s) per unit of sail load.")]
+        public float YardSwingWindRate = 55f;
+        [Tooltip("Angle mismatch (deg) between where the wind wants the yard and where the brace holds it at which the brace is fully loaded.")]
+        public float BraceLoadAngle = 25f;
+        [Tooltip("Apparent wind (m/s) below which the yard just stays where it is.")]
+        public float YardMinWind = 0.8f;
+
         private static RiggingConfig _fallback;
 
         /// <summary>The config used at runtime (assigned by NetworkShip; defaults otherwise).</summary>

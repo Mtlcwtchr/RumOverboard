@@ -1,20 +1,21 @@
 #if FUSION2
 using Fusion;
-using RumOverboard.Gameplay.Ocean.Simulation;
+using RumOverboard.Gameplay.Ocean.Features.Helm;
 using UnityEngine;
 
 namespace RumOverboard.Gameplay.Ocean
 {
     /// <summary>
     /// The ship's wheel + rudder, host-authoritative. A crew member "takes the wheel" (NetworkPlayer
-    /// occupies this helm) and steers with A/D; the host turns the wheel, the wheel sets the rudder,
-    /// and the rudder — a hydrofoil at the stern — produces a yaw force scaled by how fast water
-    /// flows past it (so you can only steer with way on, like a real ship). Waves and current push
-    /// the rudder sideways: with a helmsman it just buffets the handling, but an UNMANNED wheel gets
-    /// spun by the sea and slowly trails back to centre.
+    /// occupies this helm) and steers with A/D. The wheel is a heavy body (see
+    /// <see cref="HelmWheelPhysics"/>): A/D applies the helmsman's effort, the water on the rudder
+    /// pushes back (harder the faster you go; current / waves / drift buffet it), so at speed the
+    /// wheel is heavy, fights back to centre and can be torn from your hands; an UNMANNED wheel is
+    /// spun by the sea. The rudder follows the wheel and produces a yaw force scaled by flow past it
+    /// (you can only steer with way on, like a real ship).
     ///
-    /// Networked surface is tiny: wheel angle, rudder angle, and who's steering. The wheel MODEL is
-    /// rotated on every peer from the replicated angle.
+    /// Networked: wheel angle + spin, rudder angle, load (for feedback), kick counter, occupant.
+    /// The wheel MODEL is rotated on every peer from the replicated angle.
     /// </summary>
     public class ShipHelm : NetworkBehaviour
     {
@@ -35,8 +36,6 @@ namespace RumOverboard.Gameplay.Ocean
         [Header("Wheel")]
         [Tooltip("Total wheel travel to each side (deg). 900 ≈ 2.5 turns lock-to-lock.")]
         [SerializeField] private float maxWheelDegrees = 900f;
-        [Tooltip("Wheel spin rate at full A/D (deg/sec).")]
-        [SerializeField] private float wheelTurnRate = 320f;
 
         [Header("Rudder")]
         [SerializeField] private float maxRudderAngle = 35f;
@@ -47,25 +46,28 @@ namespace RumOverboard.Gameplay.Ocean
         [Tooltip("Flip if A/D / wheel turn the ship the wrong way.")]
         [SerializeField] private bool invertSteering;
 
-        [Header("Sea disturbance")]
-        [Tooltip("How hard sideways water flow spins an UNMANNED wheel.")]
-        [SerializeField] private float waveWheelDisturbance = 40f;
-        [Tooltip("How hard sideways flow buffets the rudder while a helmsman holds the wheel (deg per unit flow).")]
-        [SerializeField] private float waveRudderBuffet = 1.5f;
-        [Tooltip("Forward flow trails an unmanned wheel back toward centre (deg/sec per unit flow).")]
-        [SerializeField] private float unmannedCentering = 12f;
+        [Header("Feel (wheel inertia, water on the rudder, helmsman strength)")]
+        [SerializeField] private HelmFeelConfig feelConfig;
 
         [Networked] public float WheelAngle { get; set; }
+        [Networked] public float WheelVelocity { get; set; }
         [Networked] public float RudderAngle { get; set; }
         [Networked] public PlayerRef Occupant { get; set; }
+        /// <summary>Water's push on the wheel vs the helmsman's strength (signed; |x|≥1 = can't hold it).</summary>
+        [Networked] public float Load { get; set; }
+        /// <summary>Increments whenever the wheel kicks (hits a stop / torn from the hands) — feedback.</summary>
+        [Networked] public byte KickCount { get; set; }
 
         private Rigidbody _rb;
         private OceanWaveField _waveField;
         private Quaternion _wheelBaseRotation;
         private float _pendingSteer; // host-only, set by the steering player each tick
+        private float _renderAngle;
+        private float _lateralMean; // host-only: slow average of side flow (steady drift)
 
         public bool IsOccupied => Occupant.IsRealPlayer;
         public float MaxWheelDegrees => maxWheelDegrees;
+        public HelmFeelConfig Feel => feelConfig != null ? feelConfig : HelmFeelConfig.Active;
 
         /// <summary>Normalised wheel position, -1..1 (for HUD/debug).</summary>
         public float WheelNormalized => maxWheelDegrees > 0.01f ? Mathf.Clamp(WheelAngle / maxWheelDegrees, -1f, 1f) : 0f;
@@ -116,6 +118,9 @@ namespace RumOverboard.Gameplay.Ocean
             _waveField = FindAnyObjectByType<OceanWaveField>();
             if (wheelModel != null)
                 _wheelBaseRotation = wheelModel.localRotation;
+            if (feelConfig != null)
+                HelmFeelConfig.Active = feelConfig;
+            _renderAngle = WheelAngle;
         }
 
         // --- Host API (called by the occupying NetworkPlayer on the state authority) ---
@@ -148,20 +153,6 @@ namespace RumOverboard.Gameplay.Ocean
                 _pendingSteer = Mathf.Clamp(steer, -1f, 1f);
         }
 
-        private ShipHelmDynamicsSettings BuildDynamicsSettings()
-        {
-            return new ShipHelmDynamicsSettings(
-                maxWheelDegrees,
-                wheelTurnRate,
-                maxRudderAngle,
-                rudderResponse,
-                rudderYawCoefficient,
-                waveWheelDisturbance,
-                waveRudderBuffet,
-                unmannedCentering,
-                invertSteering);
-        }
-
         public override void FixedUpdateNetwork()
         {
             if (!HasStateAuthority || _rb == null)
@@ -178,18 +169,22 @@ namespace RumOverboard.Gameplay.Ocean
             float forwardFlow = Vector3.Dot(flow, -transform.forward); // >0 when making way ahead
             float lateralFlow = Vector3.Dot(flow, transform.right);     // sideways buffeting
 
-            var stepInput = new ShipHelmDynamicsInput(
-                dt,
-                WheelAngle,
-                RudderAngle,
-                _pendingSteer,
-                IsOccupied,
-                forwardFlow,
-                lateralFlow);
+            // Steady leeway / current just loads the rudder evenly — only the CHANGING part (waves,
+            // gusts, yawing) buffets the wheel, so a drifting ship doesn't wind it onto its stop.
+            _lateralMean = Mathf.Lerp(_lateralMean, lateralFlow, 1f - Mathf.Exp(-dt / 3f));
+            lateralFlow -= _lateralMean;
 
-            ShipHelmDynamicsResult step = ShipHelmDynamicsSolver.Step(stepInput, BuildDynamicsSettings());
-            WheelAngle = step.WheelAngle;
-            RudderAngle = step.RudderAngle;
+            var state = new HelmWheelState { Wheel = WheelAngle, Velocity = WheelVelocity, Rudder = RudderAngle };
+            var geometry = new HelmWheelGeometry(maxWheelDegrees, maxRudderAngle, rudderResponse, rudderYawCoefficient, invertSteering);
+            HelmWheelResult step = HelmWheelPhysics.Step(ref state, _pendingSteer, IsOccupied, forwardFlow, lateralFlow,
+                Runner.SimulationTime, dt, geometry, Feel);
+
+            WheelAngle = state.Wheel;
+            WheelVelocity = state.Velocity;
+            RudderAngle = state.Rudder;
+            Load = step.Load;
+            if (step.Kick)
+                unchecked { KickCount++; }
             _rb.AddTorque(Vector3.up * step.YawTorque, ForceMode.Force);
 
             _pendingSteer = 0f;
@@ -199,7 +194,13 @@ namespace RumOverboard.Gameplay.Ocean
         {
             if (wheelModel == null)
                 return;
-            wheelModel.localRotation = _wheelBaseRotation * Quaternion.AngleAxis(WheelAngle, wheelSpinAxis);
+            // Networked angle steps at tick rate; extrapolate with the spin so a fast wheel turns smoothly.
+            float target = WheelAngle;
+            float predicted = _renderAngle + WheelVelocity * Time.deltaTime;
+            _renderAngle = Mathf.Abs(predicted - target) < 25f
+                ? Mathf.Lerp(predicted, target, 1f - Mathf.Exp(-20f * Time.deltaTime))
+                : target;
+            wheelModel.localRotation = _wheelBaseRotation * Quaternion.AngleAxis(_renderAngle, wheelSpinAxis);
         }
 
 #if UNITY_EDITOR

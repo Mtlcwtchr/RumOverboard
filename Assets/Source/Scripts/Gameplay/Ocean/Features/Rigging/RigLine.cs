@@ -9,8 +9,14 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
     {
         /// <summary>Raises/lowers a sail: more rope hauled down to the deck = sail higher.</summary>
         Halyard = 0,
-        /// <summary>Trims a sail's angle.</summary>
-        Sheet = 1,
+        /// <summary>
+        /// Port brace: runs from the PORT yardarm. Hauling it swings the port arm aft (yard angle
+        /// toward −max); easing it lets the wind swing the yard to starboard. Each side of the yard
+        /// has its own brace — to swing the yard one way you haul one brace AND ease the other.
+        /// </summary>
+        BracePort = 1,
+        /// <summary>Starboard brace: mirror of <see cref="BracePort"/> (hauling → yard angle toward +max).</summary>
+        BraceStarboard = 2,
     }
 
     public enum RigLineMode : byte
@@ -51,8 +57,9 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         [SerializeField] private float outMin = 3f;
         [Tooltip("Rope that has to come down to fully set the sail (m).")]
         [SerializeField] private float haulRange = 5f;
-        [Tooltip("Sheet only: max sail angle each side (deg).")]
-        [SerializeField] private float sheetMaxAngle = 60f;
+        [Tooltip("Braces only: max yard angle each side (deg).")]
+        [UnityEngine.Serialization.FormerlySerializedAs("sheetMaxAngle")]
+        [SerializeField] private float braceMaxAngle = 60f;
         [Tooltip("Initial setting 0..1 (halyards start furled = 0).")]
         [Range(0f, 1f)] [SerializeField] private float initialValue;
 
@@ -72,7 +79,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         public float OutMin => outMin;
         public float HaulRange => Mathf.Max(0.1f, haulRange);
         public float OutMax => outMin + HaulRange;
-        public float SheetMaxAngle => sheetMaxAngle;
+        public float BraceMaxAngle => braceMaxAngle;
+        public bool IsBrace => kind == RigLineKind.BracePort || kind == RigLineKind.BraceStarboard;
+        /// <summary>+1 for the starboard brace (hauls the yard toward +angle), −1 for port, 0 for halyards.</summary>
+        public float BraceSign => kind == RigLineKind.BraceStarboard ? 1f : kind == RigLineKind.BracePort ? -1f : 0f;
         public float InitialValue => initialValue;
         public Material RopeMaterial => ropeMaterial;
         public NetworkShip Ship => _ship != null ? _ship : (_ship = GetComponentInParent<NetworkShip>());

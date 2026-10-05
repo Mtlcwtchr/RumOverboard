@@ -156,6 +156,71 @@ namespace RumOverboard.Gameplay.UI
             SetDrunkenness(0f);
         }
 
+        /// <summary>Strain of what you're holding (wheel / rope): 0 hides the meter, ≥1 = can't hold it.</summary>
+        public void SetStrain(float value, string label)
+        {
+            if (_strainRoot == null)
+                return;
+            float shown = Mathf.Lerp(_strainShown, _visible ? Mathf.Max(0f, value) : 0f, 1f - Mathf.Exp(-10f * Time.unscaledDeltaTime));
+            _strainShown = shown;
+            bool show = shown > 0.04f && !string.IsNullOrEmpty(label);
+            if (_strainRoot.activeSelf != show)
+                _strainRoot.SetActive(show);
+            if (!show)
+                return;
+            float fill = Mathf.Clamp01(shown);
+            _strainFill.rectTransform.anchorMax = new Vector2(fill, 1f);
+            _strainFill.color = shown >= 1f
+                ? Color.Lerp(new Color(1f, 0.25f, 0.2f), new Color(1f, 0.9f, 0.3f), Mathf.PingPong(Time.unscaledTime * 6f, 1f))
+                : Color.Lerp(new Color(0.55f, 0.85f, 1f), new Color(1f, 0.45f, 0.2f), fill);
+            if (label != _strainText)
+            {
+                _strainText = label;
+                _strainLabel.text = $"{label} · УСИЛИЕ";
+            }
+        }
+
+        private GameObject _strainRoot;
+        private Image _strainFill;
+        private Text _strainLabel;
+        private string _strainText;
+        private float _strainShown;
+
+        private void BuildStrainMeter(Font font)
+        {
+            _strainRoot = new GameObject("StrainMeter", typeof(RectTransform));
+            _strainRoot.transform.SetParent(transform, false);
+            var rt = (RectTransform)_strainRoot.transform;
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = new Vector2(0f, -130f);
+            rt.sizeDelta = new Vector2(260f, 34f);
+
+            _strainLabel = NewText("Label", _strainRoot.transform, font, 15, TextAnchor.UpperCenter);
+            _strainLabel.rectTransform.anchorMin = new Vector2(0f, 1f);
+            _strainLabel.rectTransform.anchorMax = new Vector2(1f, 1f);
+            _strainLabel.rectTransform.pivot = new Vector2(0.5f, 1f);
+            _strainLabel.rectTransform.sizeDelta = new Vector2(0f, 18f);
+            _strainLabel.rectTransform.anchoredPosition = Vector2.zero;
+            _strainLabel.color = new Color(1f, 1f, 1f, 0.85f);
+            _strainLabel.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.8f);
+
+            var back = NewGraphic<Image>("Back", _strainRoot.transform);
+            back.color = new Color(0f, 0f, 0f, 0.45f);
+            back.rectTransform.anchorMin = Vector2.zero;
+            back.rectTransform.anchorMax = new Vector2(1f, 0f);
+            back.rectTransform.pivot = new Vector2(0.5f, 0f);
+            back.rectTransform.sizeDelta = new Vector2(0f, 10f);
+            back.rectTransform.anchoredPosition = Vector2.zero;
+
+            _strainFill = NewGraphic<Image>("Fill", back.transform);
+            _strainFill.rectTransform.anchorMin = Vector2.zero;
+            _strainFill.rectTransform.anchorMax = new Vector2(0f, 1f);
+            _strainFill.rectTransform.offsetMin = new Vector2(1f, 1f);
+            _strainFill.rectTransform.offsetMax = new Vector2(-1f, -1f);
+            _strainRoot.SetActive(false);
+        }
+
         public void SetState(PlayerState active)
         {
             if (active == _lastState)
@@ -232,6 +297,7 @@ namespace RumOverboard.Gameplay.UI
             shadow.effectColor = new Color(0f, 0f, 0f, 0.8f);
 
             BuildDrunkMeter(font);
+            BuildStrainMeter(font);
         }
 
         private static T NewGraphic<T>(string name, Transform parent) where T : Graphic
