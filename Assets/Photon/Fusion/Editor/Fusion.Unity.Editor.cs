@@ -2182,7 +2182,7 @@ namespace Fusion.Editor {
       }
       
       (AssetGuid, _) = AssetDatabaseUtils.GetGUIDAndLocalFileIdentifierOrThrow(obj);
-      InstanceID = obj.GetInstanceID();
+      InstanceID = obj.GetObjectId();
       AssetName = obj.name;
       IsMainAsset = AssetDatabase.IsMainAsset(obj);
     } 
@@ -7523,7 +7523,11 @@ namespace Fusion.Editor {
               hashCode = HashCodeUtilities.CombineHashCodes(hashCode, p.colorValue.GetHashCode());
               break;
             case SerializedPropertyType.ObjectReference:
+#if UNITY_6000_6_OR_NEWER
+              hashCode = HashCodeUtilities.CombineHashCodes(hashCode, p.objectReferenceEntityIdValue.GetHashCode());
+#else
               hashCode = HashCodeUtilities.CombineHashCodes(hashCode, p.objectReferenceInstanceIDValue);
+#endif
               break;
             case SerializedPropertyType.LayerMask:
               hashCode = HashCodeUtilities.CombineHashCodes(hashCode, p.intValue);
@@ -9928,7 +9932,11 @@ namespace Fusion.Editor {
           return CheckCondition(doIf, compareProperty.longValue);
 
         case SerializedPropertyType.ObjectReference:
+#if UNITY_6000_6_OR_NEWER
+          return CheckCondition(doIf, compareProperty.objectReferenceEntityIdValue.IsValid() ? 1L : 0L);
+#else
           return CheckCondition(doIf, compareProperty.objectReferenceInstanceIDValue);
+#endif
 
         case SerializedPropertyType.Float:
           return CheckCondition(doIf, compareProperty.doubleValue);
@@ -12159,9 +12167,28 @@ namespace Fusion.Editor {
 
     [RuntimeInitializeOnLoadMethod]
     public static void Initialize() {
+#if UNITY_6000_6_OR_NEWER
+      UnityEditor.EditorApplication.hierarchyWindowItemByEntityIdOnGUI -= HierarchyWindowOverlay;
+      UnityEditor.EditorApplication.hierarchyWindowItemByEntityIdOnGUI += HierarchyWindowOverlay;
+#else
       UnityEditor.EditorApplication.hierarchyWindowItemOnGUI -= HierarchyWindowOverlay;
       UnityEditor.EditorApplication.hierarchyWindowItemOnGUI += HierarchyWindowOverlay;
+#endif
     }
+
+#if UNITY_6000_6_OR_NEWER
+    private static bool IsSceneHandle(Scene scene, EntityId entityId) {
+      return scene.handle.GetRawData() == EntityId.ToULong(entityId);
+    }
+#elif UNITY_6000_3_OR_NEWER
+    private static bool IsSceneHandle(Scene scene, EntityId entityId) {
+      return scene.handle == entityId;
+    }
+#else
+    private static bool IsSceneHandle(Scene scene, int entityId) {
+      return scene.handle == entityId;
+    }
+#endif
 
     [StaticField(StaticFieldResetMode.None)]
     private static Lazy<GUIStyle> s_hierarchyOverlayLabelStyle = new Lazy<GUIStyle>(() => {
@@ -12176,11 +12203,15 @@ namespace Fusion.Editor {
     [StaticField(StaticFieldResetMode.None)]
     private static GUIContent s_multipleInstancesContent = EditorGUIUtility.IconContent("Warning", "multiple");
 
+#if UNITY_6000_6_OR_NEWER
+    private static void HierarchyWindowOverlay(EntityId entityId, Rect position) {
+      var obj = UnityEditor.EditorUtility.EntityIdToObject(entityId);
+#elif UNITY_6000_3_OR_NEWER
     private static void HierarchyWindowOverlay(int instanceId, Rect position) {
-#if UNITY_6000_3_OR_NEWER
       var entityId = (EntityId)instanceId;
       var obj = UnityEditor.EditorUtility.EntityIdToObject(entityId);
 #else
+    private static void HierarchyWindowOverlay(int instanceId, Rect position) {
       var entityId = instanceId;
       var obj = UnityEditor.EditorUtility.InstanceIDToObject(entityId);
 #endif
@@ -12192,7 +12223,7 @@ namespace Fusion.Editor {
       Scene scene = default;
       for (int i = 0; i < SceneManager.sceneCount; ++i) {
         var s = SceneManager.GetSceneAt(i);
-        if (s.handle == entityId) {
+        if (IsSceneHandle(s, entityId)) {
           scene = s;
           break;
         }
@@ -12240,7 +12271,7 @@ namespace Fusion.Editor {
               if (!otherScene.IsValid()) {
                 continue;
               }
-              if (otherScene.handle == instanceId) {
+              if (IsSceneHandle(otherScene, entityId)) {
                 menu.AddItem(MakeRunnerContent(runner), false, () => {
                   EditorGUIUtility.PingObject(runner);
                   Selection.activeObject = runner;

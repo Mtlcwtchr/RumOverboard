@@ -3741,7 +3741,7 @@ namespace Fusion {
       }
 
       public int GetHashCode(Scene obj) {
-        return obj.handle;
+        return obj.handle.GetHashCode();
       }
     }
 
@@ -3898,7 +3898,7 @@ namespace Fusion {
         result.Append("<Invalid>");
       }
 
-      result.Append(", handle:").Append(scene.handle);
+      result.Append(", handle:").Append(scene.handle.ToString());
       result.Append("]");
       return result.ToString();
     }

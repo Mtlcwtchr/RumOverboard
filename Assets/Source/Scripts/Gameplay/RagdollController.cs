@@ -107,7 +107,7 @@ namespace RumOverboard.Gameplay
                 _rightArm = animator.GetBoneTransform(HumanBodyBones.RightUpperArm);
             }
             _root = rootBody != null ? rootBody.transform : (selfBody != null ? selfBody.transform : transform);
-            _seed = (GetInstanceID() & 0xFFFF) * 0.013f;
+            _seed = (GetEntityId().GetHashCode() & 0xFFFF) * 0.013f;
             _initialized = true;
 
             ApplyPhysical(false); // start animated
