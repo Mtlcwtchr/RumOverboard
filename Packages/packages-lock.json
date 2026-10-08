@@ -1,5 +1,12 @@
 {
   "dependencies": {
+    "com.annulusgames.alchemy": {
+      "version": "https://github.com/annulusgames/Alchemy.git?path=/Alchemy/Assets/Alchemy#v2.1.1",
+      "depth": 0,
+      "source": "git",
+      "dependencies": {},
+      "hash": "2ced88728c1841febb2979586c4d7efa7d1b20b6"
+    },
     "com.cysharp.r3": {
       "version": "1.3.1",
       "depth": 0,
@@ -34,7 +41,7 @@
     },
     "com.unity.burst": {
       "version": "2.0.0",
-      "depth": 2,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {}
     },
@@ -47,7 +54,7 @@
     },
     "com.unity.collections": {
       "version": "6.6.0",
-      "depth": 2,
+      "depth": 1,
       "source": "builtin",
       "dependencies": {
         "com.unity.burst": "1.8.25",
@@ -159,6 +166,15 @@
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
+    "com.unity.serialization": {
+      "version": "6.5.0",
+      "depth": 0,
+      "source": "builtin",
+      "dependencies": {
+        "com.unity.collections": "2.1.2",
+        "com.unity.burst": "1.7.2"
+      }
+    },
     "com.unity.shadergraph": {
       "version": "17.6.0",
       "depth": 1,
@@ -181,7 +197,7 @@
     },
     "com.unity.test-framework.performance": {
       "version": "6.6.0",
-      "depth": 3,
+      "depth": 2,
       "source": "builtin",
       "dependencies": {
         "com.unity.test-framework": "1.1.33",
