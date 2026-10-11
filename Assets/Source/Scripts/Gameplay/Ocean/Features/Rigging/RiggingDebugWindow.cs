@@ -87,6 +87,17 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             cfg.BraceLoadAngle = Slider("Brace full-load angle", cfg.BraceLoadAngle, 2f, 90f);
             cfg.YardMinWind = Slider("Yard min wind m/s", cfg.YardMinWind, 0f, 5f);
 
+            GUILayout.Label("<b>Rope look (tension)</b>");
+            cfg.RopeTautLoad = Slider("Taut at load", cfg.RopeTautLoad, 0.01f, 1f);
+            cfg.RopeSlackSag = Slider("Slack sag (× span)", cfg.RopeSlackSag, 0f, 0.2f);
+            cfg.RopeTensionResponse = Slider("Tension response 1/s", cfg.RopeTensionResponse, 0.5f, 30f);
+            cfg.RopeSwayAmplitude = Slider("Slack sway m", cfg.RopeSwayAmplitude, 0f, 0.5f);
+            cfg.RopeSwayFrequency = Slider("Slack sway Hz", cfg.RopeSwayFrequency, 0.1f, 3f);
+            cfg.RopeHumLoad = Slider("Shiver from load", cfg.RopeHumLoad, 0.1f, 2f);
+            cfg.RopeHumAmplitude = Slider("Shiver m", cfg.RopeHumAmplitude, 0f, 0.05f);
+            cfg.RopeHumFrequency = Slider("Shiver Hz", cfg.RopeHumFrequency, 5f, 40f);
+            cfg.BraceContactTension = Slider("Brace at stop tension", cfg.BraceContactTension, 0f, 1f);
+
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Reset from config"))
                 cfg.CopyFrom(_snapshot);
@@ -163,6 +174,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
                 if (line != null && line.Kind == RigLineKind.Halyard)
                     ship.SetLineOut(i, line.OutFromValue(value));
             }
+            // Setting sail also casts the gaskets off (furling is the F7 window's job).
+            if (value > 0f && ship.Sails != null)
+                for (int s = 0; s < Mathf.Min(ship.Sails.SailCount, NetworkShip.MaxSails); s++)
+                    ship.SetSailFurl(s, 0f);
         }
 
         private static float Slider(string label, float value, float min, float max)

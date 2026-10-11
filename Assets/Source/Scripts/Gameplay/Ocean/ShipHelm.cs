@@ -67,6 +67,11 @@ namespace RumOverboard.Gameplay.Ocean
 
         public bool IsOccupied => Occupant.IsRealPlayer;
         public float MaxWheelDegrees => maxWheelDegrees;
+        public float MaxRudderAngle => maxRudderAngle;
+        public bool InvertSteering => invertSteering;
+
+        /// <summary>Which way the rudder turns the ship when making way ahead: +1 = to starboard, -1 = to port.</summary>
+        public float TurnDirection(float rudder) => Mathf.Abs(rudder) < 0.01f ? 0f : Mathf.Sign(rudder) * (invertSteering ? -1f : 1f);
         public HelmFeelConfig Feel => feelConfig != null ? feelConfig : HelmFeelConfig.Active;
 
         /// <summary>Normalised wheel position, -1..1 (for HUD/debug).</summary>
@@ -185,7 +190,7 @@ namespace RumOverboard.Gameplay.Ocean
             Load = step.Load;
             if (step.Kick)
                 unchecked { KickCount++; }
-            _rb.AddTorque(Vector3.up * step.YawTorque, ForceMode.Force);
+            _rb.AddTorque(Vector3.up * (step.YawTorque * Mathf.Max(0f, Feel.RudderAuthority)), ForceMode.Force);
 
             _pendingSteer = 0f;
         }

@@ -1,6 +1,7 @@
 #if FUSION2
 using Fusion;
 using RumOverboard.Gameplay.Interaction;
+using RumOverboard.Gameplay.Ocean.Features.ShipStatus;
 using RumOverboard.Gameplay.UI;
 using RumOverboard.Networking;
 using UnityEngine;
@@ -79,6 +80,7 @@ namespace RumOverboard.Gameplay
             transform.position = target.RenderEyePosition;
             ApplyCursorLock(true);
             HintOverlay.Ensure().SetVisible(true);
+            ShipStatusWidget.Ensure().SetTarget(target);
         }
 
         public void ClearTarget(NetworkPlayer target)
@@ -91,6 +93,8 @@ namespace RumOverboard.Gameplay
             ApplyCursorLock(false);
             if (HintOverlay.Instance != null)
                 HintOverlay.Instance.SetVisible(false);
+            if (ShipStatusWidget.Instance != null)
+                ShipStatusWidget.Instance.ClearTarget(target);
         }
 
         private void Update()
@@ -100,7 +104,8 @@ namespace RumOverboard.Gameplay
             if (kb != null && kb.escapeKey.wasPressedThisFrame)
                 ApplyCursorLock(false);
             var mouse = Mouse.current;
-            if (_target != null && mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
+            if (_target != null && mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked &&
+                !UiInputCapture.Active)
                 ApplyCursorLock(true);
         }
 
@@ -220,7 +225,7 @@ namespace RumOverboard.Gameplay
 
         private void AccumulateLook()
         {
-            if (Cursor.lockState != CursorLockMode.Locked && lockCursor)
+            if ((Cursor.lockState != CursorLockMode.Locked && lockCursor) || UiInputCapture.Active)
                 return;
 
             Vector2 delta = Vector2.zero;
@@ -254,8 +259,10 @@ namespace RumOverboard.Gameplay
             _focusRef = default;
 
             // Attached (climbing / at the helm / on a rope): Interact means "let go", the controls
-            // panel already says so; don't show a competing look-at prompt.
-            if (_target.IsAttached || _target.IsKnockedOut)
+            // panel already says so; don't show a competing look-at prompt — except targets worked
+            // from the rigging (yards) while climbing.
+            bool fromRail = _target.IsClimbing && !_target.IsSteering;
+            if ((_target.IsAttached && !fromRail) || _target.IsKnockedOut)
             {
                 hints.SetPrompt(null, false);
                 return;
@@ -264,7 +271,8 @@ namespace RumOverboard.Gameplay
             // Make sure queries see the colliders where they're RENDERED this frame.
             Physics.SyncTransforms();
 
-            if (_target.ProbeLocalTarget(transform.position, transform.forward, out Interactable focus, out _))
+            if (_target.ProbeLocalTarget(transform.position, transform.forward, out Interactable focus, out _) &&
+                (!fromRail || focus.UsableWhileClimbing))
             {
                 InteractorInfo me = _target.LocalInteractor;
                 bool available = focus.IsAvailable(me);

@@ -113,6 +113,8 @@ namespace RumOverboard.Gameplay.Diagnostics
         // ---------------------------------------------------------------------------------------
         private IEnumerator HostLoop()
         {
+            for (int s = 0; s < _ship.Sails.SailCount; s++)
+                _ship.SetSailFurl(s, 0f);
             for (int l = 0; l < NetworkShip.MaxLines; l++)
                 if (_ship.Line(l) is { Kind: RigLineKind.Halyard } halyard)
                     _ship.SetLineOut(l, halyard.OutFromValue(1f));
@@ -145,6 +147,8 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Wait(2f);
             Log($"client: ship speed ≈ {ShipSpeed():F2} m/s, platform={_player.Platform}");
             Check(_player.Platform == _ship.Object.Id, "client: aboard the ship (look space = ship)");
+            Check(_ship.Sails.SailCount > 0 && _ship.GetSailFurl(0) < 0.01f && _ship.Sails.GetFurl(0) < 0.01f,
+                "client: the host's 'cast loose' replicates into the client's cloth");
 
             // 1) Idle on the sailing ship — what the client renders.
             yield return Measure("idle", 6f);

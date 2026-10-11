@@ -62,7 +62,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
             Debug.Log("[ShipSandbox] Done. Open Assets/Scenes/ShipSandbox.unity and press Play.");
         }
 
-        [MenuItem("RumOverboard/Ship Sandbox/Build Feature Scenes (Rigging, Water, Helm, Crew)", priority = 22)]
+        [MenuItem("RumOverboard/Ship Sandbox/Build Feature Scenes (Rigging, Furl, Status, Water, Helm, Crew)", priority = 22)]
         public static void BuildFeatureScenesMenu()
         {
             if (!ConfirmScenes()) return;
@@ -939,6 +939,15 @@ namespace RumOverboard.EditorTools.ShipSandbox
         public static RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionConfig EnsureWaterInteractionConfig() =>
             EnsureConfig<RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionConfig>(WaterInteractionConfigPath);
 
+        public const string SailFurlConfigPath = "Assets/Source/Configs/FeatureScenes/SailFurlConfig.asset";
+        public const string ShipStatusConfigPath = "Assets/Source/Configs/FeatureScenes/ShipStatusConfig.asset";
+
+        public static RumOverboard.Gameplay.Ocean.Features.SailFurl.SailFurlConfig EnsureSailFurlConfig() =>
+            EnsureConfig<RumOverboard.Gameplay.Ocean.Features.SailFurl.SailFurlConfig>(SailFurlConfigPath);
+
+        public static RumOverboard.Gameplay.Ocean.Features.ShipStatus.ShipStatusConfig EnsureShipStatusConfig() =>
+            EnsureConfig<RumOverboard.Gameplay.Ocean.Features.ShipStatus.ShipStatusConfig>(ShipStatusConfigPath);
+
         private const string SplashPrefabPath = "Assets/NamuFX/StylizedWaterEffects/Prefabs/Water_Splash_A.prefab";
 
         /// <summary>Water interaction config with its sim shader + splash effect wired.</summary>
@@ -1094,6 +1103,10 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 if (cfg != null) cfg.objectReferenceValue = EnsureRiggingConfig();
                 SerializedProperty water = so.FindProperty("waterInteractionConfig");
                 if (water != null) water.objectReferenceValue = PrepareWaterInteractionConfig();
+                SerializedProperty furl = so.FindProperty("sailFurlConfig");
+                if (furl != null) furl.objectReferenceValue = EnsureSailFurlConfig();
+                SerializedProperty status = so.FindProperty("shipStatusConfig");
+                if (status != null) status.objectReferenceValue = EnsureShipStatusConfig();
                 so.ApplyModifiedPropertiesWithoutUndo();
             }
         }
@@ -1198,6 +1211,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
         public const string WaterScenePath = "Assets/Scenes/WaterInteractionScene.unity";
         public const string HelmScenePath = "Assets/Scenes/HelmScene.unity";
         public const string CrewScenePath = "Assets/Scenes/CrewRagdollScene.unity";
+        public const string SailFurlScenePath = "Assets/Scenes/SailFurlScene.unity";
+        public const string ShipStatusScenePath = "Assets/Scenes/ShipStatusScene.unity";
 
         public static void BuildScene() => BuildScene(ScenePath, "Moderate", null);
 
@@ -1208,6 +1223,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
             BuildScene(WaterScenePath, "Storm", DebugWater);
             BuildScene(HelmScenePath, "Moderate", DebugHelm);
             BuildScene(CrewScenePath, "Calm", DebugCrew);
+            BuildScene(SailFurlScenePath, "Calm", DebugFurl);
+            BuildScene(ShipStatusScenePath, "Moderate", DebugStatus);
         }
 
         /// <param name="seaState">OceanSeaStateProfile asset name fragment the scene starts in.</param>
@@ -1324,6 +1341,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
             AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.WaterInteraction.WaterInteractionDebugWindow>(debugGo, openDebug == DebugWater);
             AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.Helm.HelmDebugWindow>(debugGo, openDebug == DebugHelm);
             AddDebugWindow<RumOverboard.Gameplay.Crew.CrewRagdollDebugWindow>(debugGo, openDebug == DebugCrew);
+            AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.SailFurl.SailFurlDebugWindow>(debugGo, openDebug == DebugFurl);
+            AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.ShipStatus.ShipStatusDebugWindow>(debugGo, openDebug == DebugStatus);
 
             // Sea ↔ hull interaction map (follows the camera; ships write foam / bow waves into it).
             var mapGo = new GameObject("WaterInteractionMap");
@@ -1342,6 +1361,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
         public const string DebugWater = "water";
         public const string DebugHelm = "helm";
         public const string DebugCrew = "crew";
+        public const string DebugFurl = "furl";
+        public const string DebugStatus = "status";
 
         private static void AddDebugWindow<T>(GameObject host, bool open) where T : MonoBehaviour
         {

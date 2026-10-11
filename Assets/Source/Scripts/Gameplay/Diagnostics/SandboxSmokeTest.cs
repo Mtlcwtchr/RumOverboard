@@ -8,6 +8,8 @@ using Fusion;
 using RumOverboard.Core.Sim;
 using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Features.SailFurl;
+using RumOverboard.Gameplay.Ocean.Features.ShipStatus;
 using RumOverboard.Networking;
 using RumOverboard.StateMachine;
 using UnityEngine;
@@ -66,6 +68,15 @@ namespace RumOverboard.Gameplay.Diagnostics
             }
             _player.InputOverride = () => _input;
             Log($"spawned: player at {_player.transform.position}, ship at {_ship.transform.position}");
+            yield return Wait(0.3f);
+            {
+                int sails = _ship.Sails != null ? _ship.Sails.SailCount : 0;
+                bool allFurled = sails > 0;
+                for (int s = 0; s < sails; s++)
+                    allFurled &= _ship.GetSailFurl(s) >= 0.999f && _ship.GetSailFurlGoal(s);
+                Check(allFurled == SailFurlConfig.Active.StartFurled, $"furl: voyage starts with all {sails} sails furled = {SailFurlConfig.Active.StartFurled}");
+            }
+            yield return Shots("start");
 
             yield return Run(ShipStability());
             yield return Run(IdleOnDeck());
@@ -74,11 +85,16 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Run(Shrouds());
             yield return Run(LookAtProbe());
             yield return Run(ClimbMast());
+            yield return Run(YardFurl());
+            yield return Run(YardFromRatlines());
+            yield return Run(StatusSnapshot());
             yield return Run(Helm());
             yield return Run(Rope());
             yield return Run(Braces());
             yield return Run(PartialRagdoll());
             yield return Run(IdleWhileSailing());
+            yield return Run(SteerUnderSail());
+            yield return Shots("sailing");
             Finish();
         }
 
@@ -242,11 +258,21 @@ namespace RumOverboard.Gameplay.Diagnostics
 
         private IEnumerator IdleWhileSailing()
         {
-            // Hoist every sail (as if the crew hauled all halyards) and let her pick up speed.
+            // Cast every sail loose and hoist it (as if the crew hauled all halyards); let her pick up speed.
+            for (int s = 0; s < _ship.Sails.SailCount; s++)
+                _ship.SetSailFurl(s, 0f);
             for (int l = 0; l < NetworkShip.MaxLines; l++)
                 if (_ship.Line(l) is { Kind: RigLineKind.Halyard } halyard)
                     _ship.SetLineOut(l, halyard.OutFromValue(1f));
             yield return Wait(6f);
+            {
+                float minHalyard = 1f;
+                for (int l = 0; l < NetworkShip.MaxLines; l++)
+                    if (_ship.Line(l) is { Kind: RigLineKind.Halyard })
+                        minHalyard = Mathf.Min(minHalyard, RopeRenderSystem.Tension(_ship, l));
+                Log($"sailing: hoisted halyards draw with tension ≥ {minHalyard:F2}");
+                Check(minHalyard > 0.6f, "rope visuals: hoisted halyards under load are drawn taut");
+            }
 
             if (_ship.TryGetCrewSpawn(0, out Vector3 p, out Quaternion r))
                 yield return PlaceAt(p + Vector3.up * 0.1f, r);
@@ -269,6 +295,75 @@ namespace RumOverboard.Gameplay.Diagnostics
             Check(Has(PlayerState.Grounded), "sailing: crew still on deck");
             Check(drift < 0.25f, $"sailing: ship-local drift {drift:F3} < 0.25m");
             Check(maxStep < 0.02f, $"sailing: rendered eye jitter {maxStep * 1000:F1}mm < 20mm/frame");
+        }
+
+        // Under way with sails set: holding D / A at the wheel must actually turn the ship.
+        private IEnumerator SteerUnderSail()
+        {
+            var station = SimWorld.All<Interactable>().OfType<HelmStation>().FirstOrDefault(s => s.Ship() == _ship);
+            if (station == null) { Fail("steer: no HelmStation"); yield break; }
+            yield return PlaceAt(station.StandPosition + Vector3.up * 0.1f, station.StandRotation);
+            yield return Press(station.Ref);
+            Check(Has(PlayerState.Steering), "steer: took the wheel under way");
+            if (!Has(PlayerState.Steering)) yield break;
+
+            float Heading() { Vector3 f = _ship.transform.forward; return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg; }
+            Log($"steer: inertia {_ship.Body.inertiaTensor} mass {_ship.Body.mass:F0} angDamp {_ship.Body.angularDamping:F2}");
+
+            // Start clean: wheel centred (the helm test left it over) and the ship making way.
+            station.Helm.WheelAngle = 0f;
+            station.Helm.WheelVelocity = 0f;
+            station.Helm.RudderAngle = 0f;
+            float SpeedAhead() => Vector3.Dot(_ship.Body.linearVelocity, _ship.transform.forward);
+            for (float w = 0f; w < 12f && (SpeedAhead() < 3f || Mathf.Abs(_ship.Body.angularVelocity.y) > 0.05f); w += Time.deltaTime)
+                yield return null;
+            Log($"steer: start {SpeedAhead():F2} m/s ahead, yawRate {_ship.Body.angularVelocity.y * Mathf.Rad2Deg:F1}°/s");
+
+            // First bear away from the wind (turning into it rounds her up and kills her way — no
+            // steerage), then come back: a longer pass, the wheel has to travel from stop to stop.
+            var wind = new ShipStatusSnapshot();
+            wind.Capture(_ship, _ship.Body.linearVelocity, _ship.Runner.SimulationTime);
+            float away = wind.TrueWindFrom >= 0f ? -1f : 1f;
+            Log($"steer: wind from {wind.TrueWindFrom:F0}° → bear away to {(away > 0 ? "starboard (D)" : "port (A)")} first");
+
+            float[] turned = new float[2];
+            for (int pass = 0; pass < 2; pass++)
+            {
+                float dir = pass == 0 ? away : -away;
+                float duration = pass == 0 ? 7f : 12f;
+                float h0 = Heading();
+                float prev = h0, total = 0f;
+                _input = default;
+                _input.Move = new Vector2(dir, 0f);
+                for (float t = 0f, next = 0f; t < duration; t += Time.deltaTime)
+                {
+                    float h = Heading();
+                    total += Mathf.DeltaAngle(prev, h);
+                    prev = h;
+                    if (t >= next)
+                    {
+                        Vector3 v = _ship.Body.linearVelocity;
+                        Vector3 com = _ship.Body.worldCenterOfMass;
+                        float sailYaw = 0f;
+                        var sailsAgg = _ship.Sails;
+                        for (int si = 0; sailsAgg != null && sailsAgg.TryGetFlatSail(si, out var m, out int li); si++)
+                            sailYaw += Vector3.Cross(m.Sails[li].lastForcePoint - com, m.Sails[li].lastForce).y;
+                        var buoy = _ship.GetComponent<RumOverboard.Gameplay.Ocean.ShipBuoyancyController>();
+                        float hullYaw = buoy != null ? buoy.LastResultantTorque.y : 0f;
+                        Log($"steer {(dir > 0 ? "D" : "A")} t={t:F1}s wheel {station.Helm.WheelAngle:F0}° rudder {station.Helm.RudderAngle:F1}° " +
+                            $"fwd {Vector3.Dot(v, _ship.transform.forward):F2}m/s yawRate {_ship.Body.angularVelocity.y * Mathf.Rad2Deg:F2}°/s turned {total:F1}° " +
+                            $"| yaw N·m: sails {sailYaw:F0}, hull {hullYaw:F0}");
+                        next += 2f;
+                    }
+                    yield return null;
+                }
+                turned[pass] = total;
+                _input = default;
+                yield return Wait(0.2f);
+            }
+            Check(turned[0] * away > 25f, $"steer: holding {(away > 0 ? "D" : "A")} bears her away ({turned[0]:F1}° in 7s)");
+            Check(turned[1] * -away > 15f, $"steer: holding {(away > 0 ? "A" : "D")} brings her back ({turned[1]:F1}° in 12s)");
+            yield return Press(default);
         }
 
         private IEnumerator Walk()
@@ -393,6 +488,168 @@ namespace RumOverboard.Gameplay.Diagnostics
             }
         }
 
+        // On the masthead platform (after ClimbMast): E on a yard casts the sail loose / furls it;
+        // walking away pauses the work, coming back resumes it.
+        private IEnumerator YardFurl()
+        {
+            YardFurlZone[] zones = _ship.GetComponentsInChildren<YardFurlZone>();
+            Check(zones.Length == _ship.Sails.SailCount, $"furl: one yard zone per sail ({zones.Length}/{_ship.Sails.SailCount})");
+            Vector3 eye = _player.CameraAnchor.position;
+            YardFurlZone zone = zones.OrderBy(z => z.DistanceTo(eye, out _)).FirstOrDefault();
+            if (zone == null) yield break;
+            float reach = zone.DistanceTo(eye, out _);
+            int s = zone.FlatIndex;
+            Log($"furl: nearest yard from the platform '{zone.name}' (sail {s}) at {reach:F2}m (reach {zone.MaxDistance:F2})");
+            Check(reach <= zone.MaxDistance, "furl: a yard is within reach from the masthead platform");
+            Check(s >= 0, "furl: the zone resolves its sail");
+            if (s < 0) yield break;
+
+            PlayerRef me = _player.Object.InputAuthority;
+            Vector3 standLocal = ShipLocal(_player.transform.position);
+            Quaternion standRot = Quaternion.Inverse(_ship.transform.rotation) * _player.transform.rotation;
+            SailFurlConfig cfg = SailFurlConfig.Active;
+
+            yield return Press(zone.Ref);
+            Check(!_ship.GetSailFurlGoal(s) && _ship.GetSailFurlWorker(s) == me, "furl: E on a furled yard starts casting the sail loose");
+            yield return Wait(cfg.UnfurlTime + 1f);
+            Log($"furl: after {cfg.UnfurlTime + 1f:F1}s furl {_ship.GetSailFurl(s):F3}, worker {_ship.GetSailFurlWorker(s)}");
+            Check(_ship.GetSailFurl(s) < 0.01f && !_ship.IsSailFurlInProgress(s) && !_ship.GetSailFurlWorker(s).IsRealPlayer,
+                "furl: sail cast loose in ~UnfurlTime, the crew member is released");
+
+            yield return Press(zone.Ref);
+            yield return Wait(1f);
+            float f1 = _ship.GetSailFurl(s);
+            Check(_ship.GetSailFurlGoal(s) && f1 > 0.02f && _ship.GetSailFurlWorker(s) == me, $"furl: E again starts furling ({f1:F2})");
+            yield return Shots("furling");
+
+            if (_ship.TryGetCrewSpawn(0, out Vector3 deck, out Quaternion deckRot))
+                yield return PlaceAt(deck + Vector3.up * 0.1f, deckRot);
+            float f2 = _ship.GetSailFurl(s);
+            yield return Wait(1f);
+            float f3 = _ship.GetSailFurl(s);
+            Log($"furl: walked off at {f2:F3} → {f3:F3} a second later, worker {_ship.GetSailFurlWorker(s)}");
+            Check(!_ship.GetSailFurlWorker(s).IsRealPlayer && Mathf.Abs(f3 - f2) < 0.005f && f3 < 0.999f,
+                "furl: leaving the yard pauses the work half-done");
+
+            yield return PlaceAt(_ship.transform.TransformPoint(standLocal) + _ship.transform.up * 0.1f, _ship.transform.rotation * standRot);
+            yield return Press(zone.Ref);
+            Check(_ship.GetSailFurlGoal(s) && _ship.GetSailFurlWorker(s) == me, "furl: back on the yard, E carries on furling");
+            float t = 0f;
+            while (_ship.GetSailFurl(s) < 0.999f && t < 30f)
+            {
+                t += Time.deltaTime;
+                yield return null;
+            }
+            Log($"furl: finished in {t:F1}s more (furl {_ship.GetSailFurl(s):F3})");
+            Check(_ship.GetSailFurl(s) >= 0.999f && !_ship.GetSailFurlWorker(s).IsRealPlayer, "furl: sail furled back on the yard");
+        }
+
+        // The course yards hang below the top: work them from the ratlines without letting go.
+        private IEnumerator YardFromRatlines()
+        {
+            YardFurlZone[] zones = _ship.GetComponentsInChildren<YardFurlZone>();
+            var shrouds = SimWorld.All<Interactable>().OfType<ClimbSurface>()
+                .Where(r => r.name.StartsWith("ShroudClimb") && r.GetComponentInParent<NetworkShip>() == _ship)
+                .OrderBy(r => r.name).ToList();
+            if (zones.Length == 0 || shrouds.Count == 0) { Fail("furl (ratlines): no zones / shrouds"); yield break; }
+
+            YardFurlZone zone = null;
+            foreach (ClimbSurface rail in shrouds)
+            {
+                yield return PlaceAt(rail.BodyPoint(0f, 0f) + rail.OutwardWorld * 0.3f + Vector3.up * 0.1f, rail.BodyRotation);
+                yield return Press(rail.Ref);
+                if (!Has(PlayerState.Climbing)) continue;
+                _input = default;
+                _input.Move = new Vector2(0f, 1f);
+                for (float t = 0; t < 12f && Has(PlayerState.Climbing) && zone == null; t += Time.deltaTime)
+                {
+                    Vector3 eye = _player.CameraAnchor.position;
+                    zone = zones.FirstOrDefault(z => z.DistanceTo(eye, out _) <= z.MaxDistance - 0.4f);
+                    yield return null;
+                }
+                _input = default;
+                if (zone != null && Has(PlayerState.Climbing))
+                    break;
+                zone = null;
+            }
+            if (zone == null) { Fail("furl (ratlines): no yard came within reach while climbing the shrouds"); yield break; }
+            yield return Wait(0.3f);
+
+            int s = zone.FlatIndex;
+            PlayerRef me = _player.Object.InputAuthority;
+            Log($"furl (ratlines): '{zone.name}' at {zone.DistanceTo(_player.CameraAnchor.position, out _):F2}m while climbing");
+            yield return Press(zone.Ref);
+            Check(Has(PlayerState.Climbing), "furl (ratlines): E on the yard keeps you on the shrouds");
+            Check(_ship.GetSailFurlWorker(s) == me && !_ship.GetSailFurlGoal(s), "furl (ratlines): and starts casting the sail loose");
+            yield return Wait(0.8f);
+            float f = _ship.GetSailFurl(s);
+            Check(f < 0.99f && Has(PlayerState.Climbing), $"furl (ratlines): the work goes on while you hang there ({f:F2})");
+            yield return Press(zone.Ref);
+            Check(_ship.GetSailFurlGoal(s) && Has(PlayerState.Climbing), "furl (ratlines): E again changes your mind (furls back)");
+
+            _ship.SetSailFurl(s, 1f);
+            _input = default;
+            _input.Buttons.Set(NetworkInputData.ButtonJump, true);
+            yield return Wait(0.15f);
+            _input = default;
+            yield return Wait(1.5f);
+            if (_ship.TryGetCrewSpawn(0, out Vector3 deck, out Quaternion deckRot))
+                yield return PlaceAt(deck + Vector3.up * 0.1f, deckRot);
+        }
+
+        // Status widget data: point-of-sail / wind-side maths and a live capture of the ship.
+        private IEnumerator StatusSnapshot()
+        {
+            Check(ShipStatusSnapshot.PointOfSailName(10f) == "в лоб" && ShipStatusSnapshot.PointOfSailName(-50f) == "бейдевинд" &&
+                  ShipStatusSnapshot.PointOfSailName(90f) == "галфвинд" && ShipStatusSnapshot.PointOfSailName(130f) == "бакштаг" &&
+                  ShipStatusSnapshot.PointOfSailName(175f) == "фордевинд", "status: points of sail by wind angle");
+            Transform t = _ship.transform;
+            float fromStar = ShipStatusSnapshot.FromAngle(t, -t.right * 6f);
+            float fromAhead = ShipStatusSnapshot.FromAngle(t, -t.forward * 6f);
+            float fromPortQuarter = ShipStatusSnapshot.FromAngle(t, (t.right + t.forward).normalized * 6f);
+            Log($"status: wind from starboard {fromStar:F0}°, ahead {fromAhead:F0}°, port quarter {fromPortQuarter:F0}°");
+            Check(Mathf.Abs(fromStar - 90f) < 1f && Mathf.Abs(fromAhead) < 1f && Mathf.Abs(fromPortQuarter + 135f) < 1f,
+                "status: wind angle is measured from the bow, + to starboard");
+
+            var snap = new ShipStatusSnapshot();
+            snap.Capture(_ship, _ship.Body.linearVelocity, _ship.Runner.SimulationTime);
+            int halyards = snap.Lines.Count(l => l.Kind == RigLineKind.Halyard);
+            Log($"status: {snap.SpeedKnots:F1} kn, wind {snap.TrueWindSpeed:F1} m/s from {snap.TrueWindFrom:F0}° ({snap.PointOfSail}), " +
+                $"rudder {snap.Rudder:F1}°, {snap.Sails.Count} sails, {snap.Lines.Count} lines");
+            Check(snap.Sails.Count == _ship.Sails.SailCount && halyards == snap.Sails.Count && snap.HasHelm,
+                "status: capture lists every sail, its halyard and the helm");
+            Check(snap.Sails.All(x => !string.IsNullOrEmpty(x.Name) && x.State == "скручен"), "status: furled sails read 'скручен'");
+
+            ShipStatusWidget widget = ShipStatusWidget.Instance;
+            if (widget == null)
+            {
+                Log("status: no widget instance (no camera rig in this scene) — skipped");
+                yield break;
+            }
+            yield return Wait(0.3f);
+            Check(widget.Ship == _ship, "status: widget follows the ship you're aboard");
+            Check(widget.IsShowing == ShipStatusConfig.Active.Visible, "status: widget shown per config");
+            bool before = widget.UserVisible;
+            widget.UserVisible = !before;
+            yield return null;
+            yield return null;
+            Check(widget.IsShowing == (!before), "status: toggling hides / shows it");
+            widget.UserVisible = before;
+
+            Check(ShipStatusWidget.CompassName(0f) == "С" && ShipStatusWidget.CompassName(93f) == "В" &&
+                  ShipStatusWidget.CompassName(-40f) == "СЗ" && ShipStatusWidget.CompassName(530f) == "Ю",
+                "status: compass point names");
+            yield return null;
+            yield return null;
+            if (widget.IsShowing && ShipStatusConfig.Active.NorthUp)
+            {
+                float heading = widget.Snapshot.HeadingDeg;
+                Log($"status: heading {heading:F0}°, hull icon bearing {widget.HullIconBearing:F0}°");
+                Check(Mathf.Abs(Mathf.DeltaAngle(widget.HullIconBearing, heading)) < 3f,
+                    "status: north-up dial — the hull icon points along the ship's heading");
+            }
+        }
+
         private IEnumerator Helm()
         {
             var station = SimWorld.All<Interactable>().OfType<HelmStation>().FirstOrDefault(s => s.Ship() == _ship);
@@ -508,6 +765,65 @@ namespace RumOverboard.Gameplay.Diagnostics
             Check(_ship.GetLineMode(i) == RigLineMode.Held, "rope: E on the loose end catches it");
             yield return Press(home.Ref);
             Check(_ship.GetLineMode(i) == RigLineMode.Tied && _ship.GetLinePin(i) == home, "rope: made fast on its home pin again");
+        }
+
+        // ---------------------------------------------------------------------------------------
+        // Optional (-sandboxShots dir): PNGs of the rig for eyeballing (furled rolls, rope sag, widget).
+        private string _shotsDir;
+
+        private IEnumerator Shots(string tag)
+        {
+            if (_shotsDir == null)
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                int at = Array.IndexOf(args, "-sandboxShots");
+                _shotsDir = at >= 0 && at + 1 < args.Length ? args[at + 1] : string.Empty;
+                if (_shotsDir.Length > 0) System.IO.Directory.CreateDirectory(_shotsDir);
+            }
+            if (_shotsDir.Length == 0 || Camera.main == null)
+                yield break;
+            Transform s = _ship.transform;
+            YardFurlZone zone = _ship.GetComponentsInChildren<YardFurlZone>().FirstOrDefault();
+            Vector3 yard = zone != null ? zone.transform.position : s.TransformPoint(new Vector3(0f, 8f, 3f));
+            yield return Shot($"{tag}_side", s.TransformPoint(new Vector3(22f, 9f, 0f)), s.TransformPoint(new Vector3(0f, 7f, 0f)), false);
+            yield return Shot($"{tag}_yard", yard + s.right * 4.5f + s.forward * 3.5f + s.up * 1.2f, yard - s.up * 1.5f, false);
+            yield return Shot($"{tag}_deck", s.TransformPoint(new Vector3(-3.5f, 3.2f, -7f)), s.TransformPoint(new Vector3(0f, 3f, 2f)), false);
+            Transform cam = Camera.main.transform;
+            yield return Shot($"{tag}_eye", cam.position, cam.position + cam.forward, true);
+        }
+
+        private IEnumerator Shot(string name, Vector3 eye, Vector3 target, bool withWidget)
+        {
+            yield return null;
+            Camera cam = Camera.main;
+            var rt = new RenderTexture(1280, 720, 24);
+            var tex = new Texture2D(1280, 720, TextureFormat.RGB24, false);
+            Transform t = cam.transform;
+            t.GetPositionAndRotation(out Vector3 oldPos, out Quaternion oldRot);
+            t.SetPositionAndRotation(eye, Quaternion.LookRotation(target - eye, _ship.transform.up));
+            Canvas widget = withWidget && ShipStatusWidget.Instance != null ? ShipStatusWidget.Instance.GetComponent<Canvas>() : null;
+            RenderTexture oldTarget = cam.targetTexture;
+            cam.targetTexture = rt;
+            if (widget != null)
+            {
+                widget.renderMode = RenderMode.ScreenSpaceCamera;
+                widget.worldCamera = cam;
+                widget.planeDistance = cam.nearClipPlane + 0.05f;
+                Canvas.ForceUpdateCanvases();
+            }
+            cam.Render();
+            if (widget != null)
+                widget.renderMode = RenderMode.ScreenSpaceOverlay;
+            cam.targetTexture = oldTarget;
+            t.SetPositionAndRotation(oldPos, oldRot);
+            RenderTexture prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            tex.ReadPixels(new Rect(0, 0, 1280, 720), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(_shotsDir, $"sandbox_{name}.png"), tex.EncodeToPNG());
+            Destroy(rt);
+            Destroy(tex);
         }
 
         // ---------------------------------------------------------------------------------------

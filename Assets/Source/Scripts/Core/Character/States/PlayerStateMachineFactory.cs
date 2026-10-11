@@ -46,10 +46,11 @@ namespace RumOverboard.Core.Character.States
                     c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f);
             // HoldingRope (a line end in hand) is driven by NetworkPlayer: take / tie / drop.
 
-            // --- Detach: Interact again, the state asked to let go, or knocked out ---
+            // --- Detach: Interact again (unless it's aimed at something worked from the rigging, e.g. a
+            //     yard), the state asked to let go, or knocked out ---
             machine
                 .AddDeactivate(Attached,
-                    c => IsAttached(c) && (c.InteractPressed || c.ReleaseRequested || c.ControlAuthority < 0.3f));
+                    c => IsAttached(c) && ((c.InteractPressed && !UsesFromRail(c)) || c.ReleaseRequested || c.ControlAuthority < 0.3f));
 
             // --- Action layer: rum on its own key ---
             machine
@@ -66,5 +67,7 @@ namespace RumOverboard.Core.Character.States
         }
 
         private static bool IsAttached(StateContext c) => (c.Machine.Active & Attached) != 0;
+
+        private static bool UsesFromRail(StateContext c) => c.ClimbUseTarget && c.Machine.IsActive(PlayerState.Climbing);
     }
 }

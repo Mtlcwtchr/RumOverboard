@@ -89,6 +89,8 @@ namespace RumOverboard.Gameplay.Ocean.Features.Helm
             cfg.FlowBuffet = Slider("Side-flow buffet", cfg.FlowBuffet, 0f, 400f);
             cfg.Turbulence = Slider("Turbulence °/s²", cfg.Turbulence, 0f, 800f);
             cfg.TurbulenceFullFlow = Slider("Turbulence full flow m/s", cfg.TurbulenceFullFlow, 0.5f, 15f);
+            GUILayout.Label("<b>Steering</b>");
+            cfg.RudderAuthority = Slider("Rudder authority ×", cfg.RudderAuthority, 0f, 8f);
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Reset from config"))

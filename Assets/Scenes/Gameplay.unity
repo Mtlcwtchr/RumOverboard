@@ -1167,7 +1167,7 @@ MonoBehaviour:
   leaveButton: {fileID: 0}
   interactionHintPanel: {fileID: 0}
   interactionHintLabel: {fileID: 0}
-  menuScene: FusionSampleMenu
+  menuScene: MainMenu
 --- !u!1 &820362656
 GameObject:
   m_ObjectHideFlags: 0

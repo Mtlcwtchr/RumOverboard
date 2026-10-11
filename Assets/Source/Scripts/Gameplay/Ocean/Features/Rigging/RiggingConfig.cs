@@ -62,6 +62,26 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         [Tooltip("Apparent wind (m/s) below which the yard just stays where it is.")]
         public float YardMinWind = 0.8f;
 
+        [Header("Rope look (tension visuals)")]
+        [Tooltip("Line load at which the rope is drawn fully taut (a straight line).")]
+        public float RopeTautLoad = 0.12f;
+        [Tooltip("Slack (fraction of the span length) an unloaded rope hangs with.")]
+        [Range(0f, 0.2f)] public float RopeSlackSag = 0.035f;
+        [Tooltip("How fast the drawn tension follows the load (1/s).")]
+        public float RopeTensionResponse = 6f;
+        [Tooltip("Sideways sway (m) at mid-span of a fully slack rope.")]
+        public float RopeSwayAmplitude = 0.12f;
+        [Tooltip("Sway frequency (Hz) of a slack rope.")]
+        public float RopeSwayFrequency = 0.9f;
+        [Tooltip("Load at which a taut rope starts to shiver under strain (full shiver at twice this).")]
+        public float RopeHumLoad = 0.6f;
+        [Tooltip("Shiver amplitude (m) of an overloaded rope.")]
+        public float RopeHumAmplitude = 0.012f;
+        [Tooltip("Shiver frequency (Hz).")]
+        public float RopeHumFrequency = 23f;
+        [Tooltip("Tension a brace shows while it holds the yard at its limit (even with no wind on it).")]
+        [Range(0f, 1f)] public float BraceContactTension = 0.75f;
+
         private static RiggingConfig _fallback;
 
         /// <summary>The config used at runtime (assigned by NetworkShip; defaults otherwise).</summary>

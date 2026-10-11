@@ -84,7 +84,14 @@ Project Settings ▸ Tags and Layers — добавь:
 
 ---
 
-## 5. Сцены и запуск (Boot → Menu → Gameplay через Fusion Menu)
+## 5. Сцены и запуск (Boot → MainMenu → Lobby → мир)
+
+> **Актуально:** Fusion Sample Menu заменено собственным меню — см. `Assets/Source/Docs/Frontend.md`
+> (`RumOverboard ▸ Frontend ▸ Build Menu Scenes`). Флоу: `Boot` → `MainMenu` (новый/загрузить рейс
+> как хост, присоединиться по коду или из списка) → `Lobby` (экипаж, «Готов», капитан жмёт «Отплыть»)
+> → `WorldMapScene`. Сессией владеет `GameSession` (DDOL); `ConnectionManager` в игровой сцене
+> подхватывает её раннер. `FusionSampleMenu` остался в Build Settings, но из `Boot` больше не грузится.
+> Ниже — историческое описание старого флоу через Fusion Menu.
 
 Флоу построен на **Photon Fusion Menu** (bridge): меню само владеет `NetworkRunner`, а
 геймплейную сцену грузит аддитивно из списка `FusionMenuConfig.AvailableScenes`.

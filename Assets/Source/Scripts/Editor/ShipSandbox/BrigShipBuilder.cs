@@ -245,8 +245,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
             Line(visual, "TopGallantPole", _wood, new Vector3(0f, topmastTop - 0.4f, z), new Vector3(0f, topmastTop + 1.6f, z), 0.16f);
             float courseYardY = spec.TopY - 0.7f;
             float topsailYardY = topmastTop - 0.5f;
-            Line(visual, "CourseYard", _wood, new Vector3(-3.2f, courseYardY, z + 0.25f), new Vector3(3.2f, courseYardY, z + 0.25f), 0.16f);
-            Line(visual, "TopsailYard", _wood, new Vector3(-2.6f, topsailYardY, z + 0.18f), new Vector3(2.6f, topsailYardY, z + 0.18f), 0.13f);
+            var courseYard = Line(visual, "CourseYard", _wood, new Vector3(-3.2f, courseYardY, z + 0.25f), new Vector3(3.2f, courseYardY, z + 0.25f), 0.16f);
+            var topsailYard = Line(visual, "TopsailYard", _wood, new Vector3(-2.6f, topsailYardY, z + 0.18f), new Vector3(2.6f, topsailYardY, z + 0.18f), 0.13f);
 
             // Top (platform) — walkable, the exit of the climbs.
             var top = MeshPart(colliders, "Top", _darkWood, new Vector3(0f, spec.TopY - 0.06f, z), new Vector3(2.0f, 0.12f, 2.4f), Quaternion.identity, _box);
@@ -294,9 +294,43 @@ namespace RumOverboard.EditorTools.ShipSandbox
             so.FindProperty("drawDebugGizmos").boolValue = false;
             so.ApplyModifiedPropertiesWithoutUndo();
 
+            // Yards you can work from the top / the rigging: furl the sail onto the yard or cast it loose.
+            Transform furl = Child(module, "FurlZones");
+            bool fore = spec.Prefix == "Fore";
+            BuildFurlZone(furl, visual, shipMast, 0, fore ? "фок" : "грот", courseYard.transform,
+                new Vector3(0f, courseYardY, z + 0.25f), 3.2f, 3.0f);
+            BuildFurlZone(furl, visual, shipMast, 1, fore ? "фор-марсель" : "грот-марсель", topsailYard.transform,
+                new Vector3(0f, topsailYardY, z + 0.18f), 2.6f, 2.45f);
+
             var mastModule = module.gameObject.AddComponent<ShipMastModule>();
             mastModule.Configure(spec.Module, visual, new Transform[0], anchors, climb, null);
             return shipMast;
+        }
+
+        /// <summary>
+        /// Trigger capsule along a yard (static — only the visuals swing with the braces) + the furled
+        /// canvas roll under it (scaled by the furl, rotated with the yard by <see cref="YardFurlZone"/>).
+        /// </summary>
+        private static void BuildFurlZone(Transform parent, Transform visual, ShipMast mast, int sail, string label,
+            Transform yard, Vector3 centre, float yardHalfLength, float sailHalfWidth)
+        {
+            var go = new GameObject($"YardFurl_{yard.name}");
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = centre;
+            var capsule = go.AddComponent<CapsuleCollider>();
+            capsule.isTrigger = true;
+            capsule.direction = 0; // along the yard (ship X)
+            capsule.radius = 0.45f;
+            capsule.height = 2f * yardHalfLength + 0.9f;
+
+            var roll = MeshPart(visual, $"{yard.name}_FurledRoll", _cylinder, _sail != null ? _sail : _rigging,
+                centre + new Vector3(0f, -0.13f, 0.05f), new Vector3(0.26f, sailHalfWidth, 0.26f),
+                Quaternion.FromToRotation(Vector3.up, Vector3.right));
+
+            var zone = go.AddComponent<RumOverboard.Gameplay.Ocean.Features.SailFurl.YardFurlZone>();
+            zone.Configure(mast, sail, label, yard, roll.transform);
+            zone.Prompt = $"Скрутить / раскрутить {label}";
+            zone.MaxDistance = 3.1f;
         }
 
         private static ShipMast.SailPanel Sail(Transform anchors, string name, float z, Vector2 topCorner, Vector2 bottomCorner, int w, int h)
@@ -515,11 +549,11 @@ namespace RumOverboard.EditorTools.ShipSandbox
             MeshPart(parent, name, mesh, mat, pos, scale, rot);
 
         /// <summary>A cylinder spar/rope from a to b (unit cylinder is 2 tall along Y, diameter 1).</summary>
-        private static void Line(Transform parent, string name, Material mat, Vector3 a, Vector3 b, float diameter)
+        private static GameObject Line(Transform parent, string name, Material mat, Vector3 a, Vector3 b, float diameter)
         {
             Vector3 d = b - a;
-            if (d.sqrMagnitude < 1e-6f) return;
-            MeshPart(parent, name, _cylinder, mat, (a + b) * 0.5f, new Vector3(diameter, d.magnitude * 0.5f, diameter),
+            if (d.sqrMagnitude < 1e-6f) return null;
+            return MeshPart(parent, name, _cylinder, mat, (a + b) * 0.5f, new Vector3(diameter, d.magnitude * 0.5f, diameter),
                 Quaternion.FromToRotation(Vector3.up, d.normalized));
         }
     }

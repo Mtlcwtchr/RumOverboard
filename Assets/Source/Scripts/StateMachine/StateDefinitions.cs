@@ -50,6 +50,9 @@ namespace RumOverboard.StateMachine
         public bool InWater;
         public float WaterSurfaceY = float.NegativeInfinity;
         public bool HasInteractionTarget;
+        // The look-at target can be used while hanging on a climb rail (a yard): Interact acts on it
+        // instead of letting go of the rail.
+        public bool ClimbUseTarget;
 
         // Velocity of whatever we're standing on (the ship deck), at the feet — includes the ship's
         // linear + rotational motion. Zero on static ground. Locomotion rides this so the crew moves

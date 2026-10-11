@@ -61,6 +61,8 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
             [Min(0.1f)] public float baseArea = 12f;
             [Range(0f, 1f)] public float hoist01 = 1f;
             [Range(0f, 1f)] public float extension01 = 1f;
+            [Tooltip("Gasketed to the yard (0 = loose, 1 = furled): a furled sail stays bundled on the yard whatever the halyard says.")]
+            [Range(0f, 1f)] public float furl01;
             [Range(-85f, 85f)] public float sheetAngleDeg;
             [Range(0f, 1f)] public float damage01;
 
@@ -98,6 +100,9 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
 
             public int ParticleCount => gridWidth * gridHeight;
             public int GetIndex(int x, int y) => y * gridWidth + x;
+
+            /// <summary>How much canvas is spread to the wind: halyard drop × not-furled × horizontal spread.</summary>
+            public float Deployment => hoist01 * (1f - furl01) * Mathf.Lerp(0.15f, 1f, extension01);
         }
 
         #endregion
@@ -182,6 +187,7 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
 
         public void SetHoist(int sailIndex, float value) { if (TryGetSail(sailIndex, out var s)) s.hoist01 = Mathf.Clamp01(value); }
         public void SetExtension(int sailIndex, float value) { if (TryGetSail(sailIndex, out var s)) s.extension01 = Mathf.Clamp01(value); }
+        public void SetFurl(int sailIndex, float value) { if (TryGetSail(sailIndex, out var s)) s.furl01 = Mathf.Clamp01(value); }
         public void SetSheetAngle(int sailIndex, float value) { if (TryGetSail(sailIndex, out var s)) s.sheetAngleDeg = Mathf.Clamp(value, -85f, 85f); }
         public void SetDamage(int sailIndex, float value) { if (TryGetSail(sailIndex, out var s)) s.damage01 = Mathf.Clamp01(value); }
 
@@ -190,14 +196,14 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
         public void SetSailEnabled(int i, bool v) { if (TryGetSail(i, out var s)) s.enabled = v; }
         public float GetHoist(int i) => TryGetSail(i, out var s) ? s.hoist01 : 0f;
         public float GetExtension(int i) => TryGetSail(i, out var s) ? s.extension01 : 0f;
+        public float GetFurl(int i) => TryGetSail(i, out var s) ? s.furl01 : 0f;
         public float GetSheetAngle(int i) => TryGetSail(i, out var s) ? s.sheetAngleDeg : 0f;
         public float GetDamage(int i) => TryGetSail(i, out var s) ? s.damage01 : 0f;
 
         public float GetEffectiveArea(int i)
         {
             if (!TryGetSail(i, out var s)) return 0f;
-            float deployment = s.hoist01 * Mathf.Lerp(0.15f, 1f, s.extension01);
-            return s.baseArea * deployment * (1f - s.damage01);
+            return s.baseArea * s.Deployment * (1f - s.damage01);
         }
 
         public Vector3 GetSailForce(int i) => TryGetSail(i, out var s) ? s.lastForce : Vector3.zero;
@@ -333,7 +339,7 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
             float windSpeed = apparentWind.magnitude;
             Vector3 windDir = windSpeed > 0.01f ? apparentWind / windSpeed : Vector3.zero;
 
-            float deployment = sail.hoist01 * Mathf.Lerp(0.15f, 1f, sail.extension01);
+            float deployment = sail.Deployment;
 
             for (int i = 0; i < count; i++)
             {
@@ -384,6 +390,28 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
 
             for (int iter = 0; iter < sail.solverIterations; iter++)
                 SolveConstraints(sail, deployment);
+
+            if (sail.furl01 > 0.001f)
+                GatherOntoYard(sail, deployment);
+        }
+
+        // Furling: the gaskets haul the loose canvas up onto the yard — free particles are pulled
+        // toward the top edge of their column (the furled roll visual sits there).
+        private void GatherOntoYard(SailPanel sail, float deployment)
+        {
+            float k = Mathf.Clamp01(sail.furl01);
+            int w = sail.gridWidth;
+            for (int i = 0; i < sail.ParticleCount; i++)
+            {
+                if (sail.pinned[i])
+                    continue;
+                int x = i % w;
+                int y = i / w;
+                Vector3 top = ComputeAnchorPosition(sail, x, 0, deployment) + Vector3.down * (0.04f * y);
+                Vector3 shift = (top - sail.positions[i]) * k;
+                sail.positions[i] += shift;
+                sail.prevPositions[i] += shift;
+            }
         }
 
         private void SolveConstraints(SailPanel sail, float deployment)
@@ -513,7 +541,7 @@ namespace RumOverboard.Gameplay.Ocean.Features.Masts
                 return;
             }
 
-            float deployment = sail.hoist01 * Mathf.Lerp(0.15f, 1f, sail.extension01);
+            float deployment = sail.Deployment;
             float effectiveArea = sail.baseArea * deployment * (1f - sail.damage01);
             if (effectiveArea <= 0.001f)
             {

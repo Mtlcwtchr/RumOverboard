@@ -14,6 +14,7 @@ namespace RumOverboard.Gameplay.Interaction
         Rope = 3,
         BelayPin = 4,
         RopeEnd = 5,
+        Yard = 6,
     }
 
     /// <summary>Who is looking at / using an interactable (host sim or local HUD).</summary>
@@ -120,6 +121,12 @@ namespace RumOverboard.Gameplay.Interaction
 
         /// <summary>Whether <paramref name="who"/> may start interacting right now.</summary>
         public virtual bool IsAvailable(in InteractorInfo who) => true;
+
+        /// <summary>
+        /// Can be used (one-shot <see cref="IHostUsable"/>) while hanging on a climb rail — Interact on it
+        /// then acts on the target instead of letting go of the rail (yards worked from the rigging).
+        /// </summary>
+        public virtual bool UsableWhileClimbing => false;
 
         public void SetColliders(Collider[] explicitColliders) => colliders = explicitColliders;
 

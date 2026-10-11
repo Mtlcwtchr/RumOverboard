@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using Fusion;
 using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Features.SailFurl;
+using RumOverboard.Gameplay.Ocean.Features.ShipStatus;
 using RumOverboard.Gameplay.Ocean.Features.WaterInteraction;
 using RumOverboard.Gameplay.Ocean;
 using UnityEngine;
@@ -62,6 +64,10 @@ namespace RumOverboard.Networking
         [Networked, Capacity(MaxLines)] private NetworkArray<Vector3> LineEnd { get; }      // ship-local free end
         [Networked, Capacity(MaxLines)] private NetworkArray<byte> LineLoadNet { get; }     // load ×100 (feedback on clients)
         [Networked, Capacity(MaxSails)] private NetworkArray<float> YardAngles { get; }     // per flat sail (deg)
+        // Sail furling (gaskets), per flat sail: progress 0 = loose .. 1 = furled on the yard.
+        [Networked, Capacity(MaxSails)] private NetworkArray<float> SailFurl { get; }
+        [Networked, Capacity(MaxSails)] private NetworkArray<byte> SailFurlGoal { get; }    // 1 = furling, 0 = casting loose
+        [Networked, Capacity(MaxSails)] private NetworkArray<PlayerRef> SailFurlWorker { get; }
 
         private Rigidbody _rb;
         private ShipRuntime _shipRuntime;
@@ -70,12 +76,19 @@ namespace RumOverboard.Networking
         private readonly Vector3[] _endVelocity = new Vector3[MaxLines];    // host-only, loose-end sim (ship-local)
         private readonly float[] _lineLoad = new float[MaxLines];           // host-only, precise load
         private readonly int[] _partner = new int[MaxLines];                // the other brace of the same yard, or -1
+        private readonly YardFurlZone[] _furlZones = new YardFurlZone[MaxSails];
 
         [Header("Rigging")]
         [SerializeField] private RiggingConfig riggingConfig;
 
         [Header("Sea interaction")]
         [SerializeField] private WaterInteractionConfig waterInteractionConfig;
+
+        [Header("Sail furling")]
+        [SerializeField] private SailFurlConfig sailFurlConfig;
+
+        [Header("Ship status widget")]
+        [SerializeField] private ShipStatusConfig shipStatusConfig;
 
         public static readonly List<NetworkShip> All = new();
 
@@ -137,15 +150,22 @@ namespace RumOverboard.Networking
             if (crewSpawns == null || crewSpawns.Length == 0)
                 crewSpawns = CollectCrewSpawns();
             CollectLines();
+            CollectFurlZones();
             if (riggingConfig != null)
                 RiggingConfig.Active = riggingConfig;
+            if (sailFurlConfig != null)
+                SailFurlConfig.Active = sailFurlConfig;
+            if (shipStatusConfig != null)
+                ShipStatusConfig.Active = shipStatusConfig;
 
             if (HasStateAuthority)
             {
                 if (waveField != null)
                     OceanTime = waveField.OceanTimeNow;
                 ResetLines();
+                ResetSails();
             }
+            SailFurlSystem.Apply(this, sailsAggregator);
 
             All.Add(this);
         }
@@ -366,6 +386,103 @@ namespace RumOverboard.Networking
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // Sail furling (gaskets) — state for SailFurlSystem / YardFurlZone
+        // ---------------------------------------------------------------------------------
+        private const float FurlEpsilon = 0.0005f;
+
+        private static bool ValidSail(int s) => s >= 0 && s < MaxSails;
+
+        /// <summary>Furl progress of flat sail <paramref name="s"/>: 0 = loose, 1 = gasketed on the yard.</summary>
+        public float GetSailFurl(int s) => ValidSail(s) ? SailFurl.Get(s) : 0f;
+
+        /// <summary>True when the sail is being (or is) furled, false when it's being cast loose.</summary>
+        public bool GetSailFurlGoal(int s) => ValidSail(s) && SailFurlGoal.Get(s) != 0;
+
+        public PlayerRef GetSailFurlWorker(int s) => ValidSail(s) ? SailFurlWorker.Get(s) : PlayerRef.None;
+
+        /// <summary>Work started and not finished yet (may be paused if nobody is on the yard).</summary>
+        public bool IsSailFurlInProgress(int s) =>
+            ValidSail(s) && Mathf.Abs(GetSailFurl(s) - (GetSailFurlGoal(s) ? 1f : 0f)) > FurlEpsilon;
+
+        /// <summary>Interaction zone on the yard of flat sail <paramref name="s"/>, or null.</summary>
+        public YardFurlZone FurlZone(int s) => ValidSail(s) ? _furlZones[s] : null;
+
+        /// <summary>
+        /// Host: Interact on a yard. Idle → start the opposite of the current state; my own work →
+        /// reverse it; paused work → take it over. Someone else working it → refused.
+        /// </summary>
+        public bool TryUseFurl(int s, PlayerRef player)
+        {
+            if (!HasStateAuthority || !ValidSail(s) || !player.IsRealPlayer)
+                return false;
+            PlayerRef worker = SailFurlWorker.Get(s);
+            bool working = IsSailFurlInProgress(s);
+            if (working && worker.IsRealPlayer && worker != player)
+                return false;
+
+            if (!working)
+                SailFurlGoal.Set(s, (byte)(GetSailFurl(s) >= 0.5f ? 0 : 1));
+            else if (worker == player)
+                SailFurlGoal.Set(s, (byte)(GetSailFurlGoal(s) ? 0 : 1));
+
+            for (int i = 0; i < MaxSails; i++) // one yard at a time per crew member
+                if (i != s && SailFurlWorker.Get(i) == player)
+                    SailFurlWorker.Set(i, PlayerRef.None);
+            SailFurlWorker.Set(s, player);
+            return true;
+        }
+
+        /// <summary>Host (debug / tests): set the furl instantly; the goal follows, no work in progress.</summary>
+        public void SetSailFurl(int s, float furl01)
+        {
+            if (!HasStateAuthority || !ValidSail(s)) return;
+            float v = Mathf.Clamp01(furl01);
+            bool furled = v >= 0.5f;
+            SailFurlGoal.Set(s, (byte)(furled ? 1 : 0));
+            // In-between values are kept as a paused job toward the nearer end.
+            SailFurl.Set(s, v);
+            SailFurlWorker.Set(s, PlayerRef.None);
+        }
+
+        /// <summary>Host (SailFurlSystem): advance the work.</summary>
+        public void SetSailFurlProgress(int s, float furl01)
+        {
+            if (HasStateAuthority && ValidSail(s))
+                SailFurl.Set(s, Mathf.Clamp01(furl01));
+        }
+
+        public void ClearSailFurlWorker(int s)
+        {
+            if (HasStateAuthority && ValidSail(s))
+                SailFurlWorker.Set(s, PlayerRef.None);
+        }
+
+        /// <summary>Host: every sail back to its voyage-start state (gasketed if the config says so).</summary>
+        public void ResetSails()
+        {
+            if (!HasStateAuthority) return;
+            bool furled = (sailFurlConfig != null ? sailFurlConfig : SailFurlConfig.Active).StartFurled;
+            for (int s = 0; s < MaxSails; s++)
+            {
+                SailFurl.Set(s, furled ? 1f : 0f);
+                SailFurlGoal.Set(s, (byte)(furled ? 1 : 0));
+                SailFurlWorker.Set(s, PlayerRef.None);
+            }
+        }
+
+        private void CollectFurlZones()
+        {
+            System.Array.Clear(_furlZones, 0, _furlZones.Length);
+            if (sailsAggregator == null) return;
+            foreach (YardFurlZone zone in GetComponentsInChildren<YardFurlZone>(true))
+            {
+                int flat = sailsAggregator.FlatIndexOf(zone.Mast, zone.SailIndex);
+                if (ValidSail(flat))
+                    _furlZones[flat] = zone;
+            }
+        }
+
         public struct LineInput
         {
             public bool Haul;
@@ -420,9 +537,11 @@ namespace RumOverboard.Networking
             if (waveField != null)
                 OceanTime = waveField.OceanTimeNow;
 
+            SailFurlSystem.Tick(this, sailsAggregator, dt, Runner.SimulationTime); // gaskets on the yards
             YardSystem.Tick(this, sailsAggregator, dt, Runner.SimulationTime); // loads + yard swing first
             RopeSystem.Tick(this, dt);
             RopeSystem.Apply(this, sailsAggregator);
+            SailFurlSystem.Apply(this, sailsAggregator);
 
             LastImpactStrength = (_shipRuntime != null && waveField != null)
                 ? _shipRuntime.StepAuthority(dt, waveField.OceanTimeNow, Runner.SimulationTime)
@@ -432,7 +551,10 @@ namespace RumOverboard.Networking
         public override void Render()
         {
             if (!HasStateAuthority)
+            {
                 RopeSystem.Apply(this, sailsAggregator); // cosmetic cloth on proxies follows the lines
+                SailFurlSystem.Apply(this, sailsAggregator);
+            }
         }
 
         private void LateUpdate()

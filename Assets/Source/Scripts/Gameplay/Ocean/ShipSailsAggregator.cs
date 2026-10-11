@@ -165,6 +165,7 @@ namespace RumOverboard.Gameplay.Ocean
         public void SetSailEnabled(int flat, bool v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetSailEnabled(s, v); }
         public float GetHoist(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetHoist(s) : 0f;
         public float GetExtension(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetExtension(s) : 0f;
+        public float GetFurl(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetFurl(s) : 0f;
         public float GetSheetAngle(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetSheetAngle(s) : 0f;
         public float GetDamage(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetDamage(s) : 0f;
         public float GetEffectiveArea(int flat) => TryGetFlatSail(flat, out var m, out int s) ? m.GetEffectiveArea(s) : 0f;
@@ -173,6 +174,20 @@ namespace RumOverboard.Gameplay.Ocean
 
         public void SetHoist(int flat, float v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetHoist(s, v); }
         public void SetExtension(int flat, float v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetExtension(s, v); }
+        public void SetFurl(int flat, float v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetFurl(s, v); }
+
+        /// <summary>Flat index of sail <paramref name="sailIndex"/> on <paramref name="mast"/>, or -1.</summary>
+        public int FlatIndexOf(ShipMast mast, int sailIndex)
+        {
+            int offset = 0;
+            for (int m = 0; m < _masts.Count; m++)
+            {
+                if (_masts[m] == mast)
+                    return sailIndex >= 0 && sailIndex < mast.SailCount ? offset + sailIndex : -1;
+                offset += _masts[m].SailCount;
+            }
+            return -1;
+        }
         public void SetSheetAngle(int flat, float v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetSheetAngle(s, v); }
         public void SetDamage(int flat, float v) { if (TryGetFlatSail(flat, out var m, out int s)) m.SetDamage(s, v); }
 

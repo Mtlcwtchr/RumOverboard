@@ -402,6 +402,7 @@ namespace RumOverboard.Networking
             HandleAttachmentChanges(before, after, input);
             DriveStations(input);
             HandleRigging(input);
+            HandleUse();
             UpdateCollisionMode();
             UpdatePlatform(ref s);
             if ((_machine.Active & (PlayerState.Climbing | PlayerState.Steering)) == 0)
@@ -500,6 +501,7 @@ namespace RumOverboard.Networking
             _ctx.ClimbTarget = null;
             _ctx.HelmTarget = null;
             _ctx.HasInteractionTarget = false;
+            _ctx.ClimbUseTarget = false;
 
             if (!InteractableIndex.TryResolve(Runner, input.Target, out Interactable candidate))
                 return;
@@ -515,6 +517,7 @@ namespace RumOverboard.Networking
 
             _target = candidate;
             _ctx.HasInteractionTarget = true;
+            _ctx.ClimbUseTarget = candidate.UsableWhileClimbing && candidate is IHostUsable;
             _ctx.TargetPoint = closest;
             switch (candidate)
             {
@@ -623,6 +626,20 @@ namespace RumOverboard.Networking
                     TryHold(pin.Ship, pin.TiedLine); // cast off the pin into our hands
                     break;
             }
+        }
+
+        // One-shot host actions (mooring bollards, yards, …): only with free hands, not attached
+        // anywhere — except targets usable from the rigging (a yard worked while hanging on a rail).
+        private void HandleUse()
+        {
+            PlayerState busy = PlayerState.Climbing | PlayerState.Steering | PlayerState.HoldingRope;
+            if (_target != null && _target.UsableWhileClimbing)
+                busy &= ~PlayerState.Climbing;
+            if (!_ctx.InteractPressed || _heldShip != null || _ctx.ControlAuthority <= 0.5f ||
+                (_machine.Active & busy) != 0)
+                return;
+            if (_target is IHostUsable usable)
+                usable.HostUse(Interactor(CameraAnchor.position, transform.position));
         }
 
         private void TryHold(NetworkShip ship, int line)
