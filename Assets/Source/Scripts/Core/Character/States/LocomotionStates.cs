@@ -348,6 +348,34 @@ namespace RumOverboard.Core.Character.States
     }
 
     /// <summary>
+    /// Manning a sweep (long oar) at the bulwark. Held at the oar's stand point like the helm;
+    /// W/S rising edges are consumed by the driver as stroke presses (the rhythm lives in
+    /// the ship's rowing system).
+    /// </summary>
+    public sealed class RowingState : PlayerStateBase
+    {
+        public override PlayerState Id => PlayerState.Rowing;
+
+        public override void Enter(StateContext ctx)
+        {
+            ctx.Body.useGravity = false;
+            ctx.ActiveStation = ctx.OarTarget;
+        }
+
+        public override void Exit(StateContext ctx)
+        {
+            ctx.Body.useGravity = true;
+            ctx.ActiveStation = null;
+        }
+
+        public override void FixedTick(StateContext ctx)
+        {
+            StationMotor.Hold(ctx);
+            ctx.PlanarSpeed = 0f;
+        }
+    }
+
+    /// <summary>
     /// A line end in your hands (action layer over Grounded / InAir / Swimming): you walk around
     /// freely; the rigging system hauls / eases / leashes. Started and ended by the driver
     /// (take / tie / drop), not by the transition table.

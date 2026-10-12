@@ -47,5 +47,8 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/ShipStatusScene.unity
     guid: f7d1b68c4bcea174ea65ece19bf3d615
+  - enabled: 1
+    path: Assets/Scenes/RowingScene.unity
+    guid: f9e8a48cb57c11746a79eb6a3c9b7f74
   m_configObjects:
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}

@@ -8,6 +8,7 @@ using RumOverboard.Gameplay;
 using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Gameplay.Ocean;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Features.Rowing;
 using RumOverboard.StateMachine;
 using RumOverboard.StateMachine.Serialization;
 using UnityEngine;
@@ -202,7 +203,11 @@ namespace RumOverboard.Networking
         public bool IsSwimming   => (State.States & PlayerState.Swimming) != 0;
         public bool IsSteering   => (State.States & PlayerState.Steering) != 0;
         public bool IsHoldingRope => (State.States & PlayerState.HoldingRope) != 0;
-        public bool IsAttached   => (State.States & (PlayerState.Climbing | PlayerState.Steering)) != 0;
+        public bool IsRowing     => (State.States & PlayerState.Rowing) != 0;
+        public bool IsAttached   => (State.States & StationStates) != 0;
+
+        // Body locked to a rail / station (no free walking, no rope handling, no one-shot uses).
+        private const PlayerState StationStates = PlayerState.Climbing | PlayerState.Steering | PlayerState.Rowing;
         public NetworkId Platform => State.Platform;
         public InteractableRef AttachedRef => State.Attached;
         public int InteractionMask => interactionMask;
@@ -405,7 +410,7 @@ namespace RumOverboard.Networking
             HandleUse();
             UpdateCollisionMode();
             UpdatePlatform(ref s);
-            if ((_machine.Active & (PlayerState.Climbing | PlayerState.Steering)) == 0)
+            if ((_machine.Active & StationStates) == 0)
                 ApplyLookDrivenBodyTurn();
 
             s.Drunkenness = _ctx.Drunkenness;
@@ -500,6 +505,7 @@ namespace RumOverboard.Networking
             _target = null;
             _ctx.ClimbTarget = null;
             _ctx.HelmTarget = null;
+            _ctx.OarTarget = null;
             _ctx.HasInteractionTarget = false;
             _ctx.ClimbUseTarget = false;
 
@@ -528,13 +534,16 @@ namespace RumOverboard.Networking
                 case HelmStation helm:
                     _ctx.HelmTarget = helm;
                     break;
+                case OarStation oar:
+                    _ctx.OarTarget = oar;
+                    break;
             }
         }
 
         // Occupancy bookkeeping for stations (helm / rope): claimed on enter, released on exit.
         private void HandleAttachmentChanges(PlayerState before, PlayerState after, NetworkInputData input)
         {
-            const PlayerState attachedMask = PlayerState.Climbing | PlayerState.Steering;
+            const PlayerState attachedMask = StationStates;
             PlayerState entered = after & ~before & attachedMask;
             PlayerState exited = before & ~after & attachedMask;
 
@@ -551,6 +560,7 @@ namespace RumOverboard.Networking
             bool claimed = _attached switch
             {
                 HelmStation helm => helm.Helm != null && helm.Helm.TryOccupy(Object.InputAuthority),
+                OarStation oar => oar.Ship != null && oar.Ship.TryTakeOar(oar.OarIndex, Object.InputAuthority),
                 ClimbSurface _ => true,
                 _ => false,
             };
@@ -566,6 +576,9 @@ namespace RumOverboard.Networking
         {
             if (station is HelmStation helm && helm.Helm != null)
                 helm.Helm.Release(Object.InputAuthority);
+            else if (station is OarStation oar && oar.Ship != null)
+                oar.Ship.ReleaseOar(oar.OarIndex, Object.InputAuthority);
+            _rowSign = 0;
         }
 
         private void DriveStations(NetworkInputData input)
@@ -575,8 +588,19 @@ namespace RumOverboard.Networking
                 case HelmStation helm when _machine.IsActive(PlayerState.Steering) && helm.Helm != null:
                     helm.Helm.SubmitSteer(_ctx.Move.x);
                     break;
+                case OarStation oar when _machine.IsActive(PlayerState.Rowing) && oar.Ship != null:
+                {
+                    // One stroke per press (rising edge of W / S) ? holding the key doesn't row.
+                    int sign = _ctx.Move.y > 0.5f ? 1 : _ctx.Move.y < -0.5f ? -1 : 0;
+                    if (sign != 0 && sign != _rowSign)
+                        oar.Ship.PressOar(oar.OarIndex, sign, Runner.Tick);
+                    _rowSign = sign;
+                    break;
+                }
             }
         }
+
+        private int _rowSign; // host: last W/S direction at the oar (stroke edge detection)
 
         // ---- Running rigging: take / haul / tie / drop a line end ---------------------------
         private NetworkShip _heldShip;
@@ -592,7 +616,7 @@ namespace RumOverboard.Networking
                 StopHolding();
 
             bool holding = _heldShip != null;
-            bool canAct = _ctx.ControlAuthority > 0.5f && (_machine.Active & (PlayerState.Climbing | PlayerState.Steering)) == 0;
+            bool canAct = _ctx.ControlAuthority > 0.5f && (_machine.Active & StationStates) == 0;
 
             if (holding)
             {
@@ -632,7 +656,7 @@ namespace RumOverboard.Networking
         // anywhere — except targets usable from the rigging (a yard worked while hanging on a rail).
         private void HandleUse()
         {
-            PlayerState busy = PlayerState.Climbing | PlayerState.Steering | PlayerState.HoldingRope;
+            PlayerState busy = StationStates | PlayerState.HoldingRope;
             if (_target != null && _target.UsableWhileClimbing)
                 busy &= ~PlayerState.Climbing;
             if (!_ctx.InteractPressed || _heldShip != null || _ctx.ControlAuthority <= 0.5f ||
@@ -824,7 +848,7 @@ namespace RumOverboard.Networking
                 Mathf.Max(0.01f, rate) * Time.deltaTime);
 
             animator.SetFloat(AnimatorParams.Speed, _smoothedAnimatorSpeed);
-            animator.SetBool(AnimatorParams.Grounded, (active & (PlayerState.Grounded | PlayerState.Steering)) != 0);
+            animator.SetBool(AnimatorParams.Grounded, (active & (PlayerState.Grounded | PlayerState.Steering | PlayerState.Rowing)) != 0);
             animator.SetBool(AnimatorParams.Climbing, (active & PlayerState.Climbing) != 0);
             animator.SetBool(AnimatorParams.Swimming, (active & PlayerState.Swimming) != 0);
             animator.SetBool(AnimatorParams.Drinking, (active & PlayerState.DrinkingRum) != 0);

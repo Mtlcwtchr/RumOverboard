@@ -254,6 +254,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 ApplyStairs(root, plan);
                 ApplyRigging(root, plan);
                 ApplySpawns(root, plan);
+                RumOverboard.Gameplay.Ocean.Features.Rowing.Editor.RowingShipBuilder.Build(root);
                 PrefabUtility.SaveAsPrefabAsset(root, ShipPrefabPath);
                 Debug.Log($"[ShipSandbox] NetworkShip prepared: climbRails={plan.Rails.Count} stairs={plan.Stairs.Count} " +
                           $"lines={plan.Lines.Count} pinRails={plan.PinRails.Count} spawns={plan.Spawns.Count} helmStand={(plan.HelmStand.HasValue ? plan.HelmStand.Value.ToString() : "-")}");
@@ -1213,6 +1214,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
         public const string CrewScenePath = "Assets/Scenes/CrewRagdollScene.unity";
         public const string SailFurlScenePath = "Assets/Scenes/SailFurlScene.unity";
         public const string ShipStatusScenePath = "Assets/Scenes/ShipStatusScene.unity";
+        public const string RowingScenePath = "Assets/Scenes/RowingScene.unity";
 
         public static void BuildScene() => BuildScene(ScenePath, "Moderate", null);
 
@@ -1225,6 +1227,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
             BuildScene(CrewScenePath, "Calm", DebugCrew);
             BuildScene(SailFurlScenePath, "Calm", DebugFurl);
             BuildScene(ShipStatusScenePath, "Moderate", DebugStatus);
+            BuildScene(RowingScenePath, "Calm", DebugRowing);
         }
 
         /// <param name="seaState">OceanSeaStateProfile asset name fragment the scene starts in.</param>
@@ -1343,6 +1346,9 @@ namespace RumOverboard.EditorTools.ShipSandbox
             AddDebugWindow<RumOverboard.Gameplay.Crew.CrewRagdollDebugWindow>(debugGo, openDebug == DebugCrew);
             AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.SailFurl.SailFurlDebugWindow>(debugGo, openDebug == DebugFurl);
             AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.ShipStatus.ShipStatusDebugWindow>(debugGo, openDebug == DebugStatus);
+            AddDebugWindow<RumOverboard.Gameplay.Ocean.Features.Rowing.RowingDebugWindow>(debugGo, openDebug == DebugRowing);
+            if (openDebug == DebugRowing)
+                debugGo.AddComponent<RumOverboard.Gameplay.Ocean.Features.Rowing.RowingSceneController>();
 
             // Sea ↔ hull interaction map (follows the camera; ships write foam / bow waves into it).
             var mapGo = new GameObject("WaterInteractionMap");
@@ -1363,6 +1369,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
         public const string DebugCrew = "crew";
         public const string DebugFurl = "furl";
         public const string DebugStatus = "status";
+        public const string DebugRowing = "rowing";
 
         private static void AddDebugWindow<T>(GameObject host, bool open) where T : MonoBehaviour
         {

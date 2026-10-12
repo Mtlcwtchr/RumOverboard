@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Fusion;
 using RumOverboard.Gameplay.Interaction;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Features.Rowing;
 using RumOverboard.Gameplay.Ocean.Features.SailFurl;
 using RumOverboard.Gameplay.Ocean.Features.ShipStatus;
 using RumOverboard.Gameplay.Ocean.Features.WaterInteraction;
@@ -25,7 +26,7 @@ namespace RumOverboard.Networking
     ///
     /// HOST TICK ORDER (deterministic, all inside FixedUpdateNetwork):
     ///   yards + line loads (YardSystem) → ropes (RopeSystem) → apply lines/yards to sails →
-    ///   sails + buoyancy (ShipRuntime). The helm applies its rudder torque in its own FixedUpdateNetwork.
+    ///   sweeps (RowingSystem) ? sails + buoyancy (ShipRuntime). The helm applies its rudder torque in its own FixedUpdateNetwork.
     ///
     /// COSMETIC (every peer): ShipWaterInteractor writes the hull's foam / bow wave / wake into the
     /// sea's interaction map; RopeRenderSystem draws the lines.
@@ -39,6 +40,7 @@ namespace RumOverboard.Networking
     {
         public const int MaxLines = 16;
         public const int MaxSails = 16;
+        public const int MaxOars = 8;
 
         [SerializeField] private ShipBuoyancyController buoyancy;
         [SerializeField] private OceanWaveField waveField;
@@ -68,6 +70,8 @@ namespace RumOverboard.Networking
         [Networked, Capacity(MaxSails)] private NetworkArray<float> SailFurl { get; }
         [Networked, Capacity(MaxSails)] private NetworkArray<byte> SailFurlGoal { get; }    // 1 = furling, 0 = casting loose
         [Networked, Capacity(MaxSails)] private NetworkArray<PlayerRef> SailFurlWorker { get; }
+        // Sweeps (long oars): rower + stroke rhythm per oar.
+        [Networked, Capacity(MaxOars)] private NetworkArray<OarState> Oars { get; }
 
         private Rigidbody _rb;
         private ShipRuntime _shipRuntime;
@@ -77,6 +81,11 @@ namespace RumOverboard.Networking
         private readonly float[] _lineLoad = new float[MaxLines];           // host-only, precise load
         private readonly int[] _partner = new int[MaxLines];                // the other brace of the same yard, or -1
         private readonly YardFurlZone[] _furlZones = new YardFurlZone[MaxSails];
+        private readonly OarStation[] _oars = new OarStation[MaxOars];
+        private readonly sbyte[] _oarBot = new sbyte[MaxOars];     // host-only debug rowers (sign)
+        private readonly float[] _oarThrust = new float[MaxOars];  // host-only, last tick (N, signed)
+        private int _oarCount;
+        private RowingConfig _runtimeRowingConfig;
 
         [Header("Rigging")]
         [SerializeField] private RiggingConfig riggingConfig;
@@ -87,12 +96,36 @@ namespace RumOverboard.Networking
         [Header("Sail furling")]
         [SerializeField] private SailFurlConfig sailFurlConfig;
 
+        [Header("Rowing (sweeps)")]
+        [SerializeField] private RowingConfig rowingConfig;
+
         [Header("Ship status widget")]
         [SerializeField] private ShipStatusConfig shipStatusConfig;
 
         public static readonly List<NetworkShip> All = new();
 
         public Rigidbody Body => _rb;
+        public Vector3 WaterVelocity => waveField != null && _rb != null
+            ? waveField.Sample(_rb.worldCenterOfMass, waveField.OceanTimeNow).waterVelocity : Vector3.zero;
+
+        public NetworkPlayer FindCrewPlayer(PlayerRef player)
+        {
+            foreach (var crew in NetworkPlayer.All)
+                if (crew != null && crew.Object != null && crew.Object.IsValid && crew.Runner == Runner &&
+                    crew.Object.InputAuthority == player) return crew;
+            return null;
+        }
+        public RowingConfig RowingSettings => _runtimeRowingConfig != null ? _runtimeRowingConfig :
+            rowingConfig != null ? rowingConfig : RowingConfig.Active;
+
+        public void SaveRowingConfig()
+        {
+#if UNITY_EDITOR
+            if (rowingConfig == null || !HasStateAuthority) return;
+            rowingConfig.CopyFrom(RowingSettings);
+            RumOverboard.Gameplay.Ocean.FeatureScenes.FeatureSceneConfigPersistence.SaveAsset(rowingConfig);
+#endif
+        }
         public ShipSailsAggregator Sails => sailsAggregator;
         public float NetworkedImpactStrength => LastImpactStrength;
 
@@ -151,6 +184,10 @@ namespace RumOverboard.Networking
                 crewSpawns = CollectCrewSpawns();
             CollectLines();
             CollectFurlZones();
+            CollectOars();
+            _runtimeRowingConfig = Instantiate(rowingConfig != null ? rowingConfig : RowingConfig.Active);
+            if (_oarCount > 0)
+                RowingHud.Ensure();
             if (riggingConfig != null)
                 RiggingConfig.Active = riggingConfig;
             if (sailFurlConfig != null)
@@ -164,6 +201,7 @@ namespace RumOverboard.Networking
                     OceanTime = waveField.OceanTimeNow;
                 ResetLines();
                 ResetSails();
+                ResetOars();
             }
             SailFurlSystem.Apply(this, sailsAggregator);
 
@@ -175,6 +213,8 @@ namespace RumOverboard.Networking
             All.Remove(this);
             RopeRenderSystem.Forget(this);
             InteractableIndex.Forget(Object);
+            if (_runtimeRowingConfig != null) Destroy(_runtimeRowingConfig);
+            _runtimeRowingConfig = null;
         }
 
 
@@ -483,6 +523,112 @@ namespace RumOverboard.Networking
             }
         }
 
+        // ---------------------------------------------------------------------------------
+        // Sweeps (long oars) ? state for RowingSystem / OarStation
+        // ---------------------------------------------------------------------------------
+        private bool ValidOar(int i) => i >= 0 && i < _oarCount;
+
+        /// <summary>Oar slots in use (highest authored index + 1).</summary>
+        public int OarCount => _oarCount;
+        public bool HasOar(int i) => ValidOar(i) && _oars[i] != null;
+        public OarStation Oar(int i) => ValidOar(i) ? _oars[i] : null;
+        public OarState GetOar(int i) => ValidOar(i) && Object != null && Object.IsValid ? Oars.Get(i) : default;
+
+        /// <summary>Index of the oar <paramref name="player"/> is manning, or -1.</summary>
+        public int OarOf(PlayerRef player)
+        {
+            if (!player.IsRealPlayer) return -1;
+            for (int i = 0; i < _oarCount; i++)
+                if (Oars.Get(i).Rower == player)
+                    return i;
+            return -1;
+        }
+
+        /// <summary>Host: man oar <paramref name="i"/> (free, or already ours). One oar per crew member.</summary>
+        public bool TryTakeOar(int i, PlayerRef player)
+        {
+            if (!HasStateAuthority || !HasOar(i) || !player.IsRealPlayer)
+                return false;
+            OarState s = Oars.Get(i);
+            if (s.Rower.IsRealPlayer && s.Rower != player)
+                return false;
+            for (int j = 0; j < _oarCount; j++)
+                if (j != i && Oars.Get(j).Rower == player)
+                    ClearOar(j);
+            Oars.Set(i, new OarState { Rower = player });
+            _oarBot[i] = 0;
+            return true;
+        }
+
+        /// <summary>Host: let go of the oar (only its rower can).</summary>
+        public void ReleaseOar(int i, PlayerRef player)
+        {
+            if (HasStateAuthority && ValidOar(i) && Oars.Get(i).Rower == player)
+                ClearOar(i);
+        }
+
+        /// <summary>Host: a stroke press (+1 pull / -1 back water) at <paramref name="tick"/>.</summary>
+        public RowFeedback PressOar(int i, int sign, int tick)
+        {
+            if (!HasStateAuthority || !ValidOar(i))
+                return RowFeedback.None;
+            OarState s = Oars.Get(i);
+            RowFeedback fb = RowingRhythm.Press(ref s, sign, tick, new RowTiming(RowingSettings, Runner.DeltaTime),
+                RowingSettings);
+            Oars.Set(i, s);
+            return fb;
+        }
+
+        /// <summary>Host: the oar rests, nobody on it.</summary>
+        public void ClearOar(int i)
+        {
+            if (!HasStateAuthority || !ValidOar(i)) return;
+            Oars.Set(i, default);
+            _oarThrust[i] = 0f;
+        }
+
+        /// <summary>Host: reset strokes and debug bots, keeping crew at their stations.</summary>
+        public void ResetOars()
+        {
+            if (!HasStateAuthority) return;
+            for (int i = 0; i < MaxOars; i++)
+            {
+                if (i < _oarCount) Oars.Set(i, new OarState { Rower = Oars.Get(i).Rower });
+                _oarBot[i] = 0;
+                _oarThrust[i] = 0f;
+            }
+        }
+
+        /// <summary>Host debug: an invisible rower pulling (+1) / backing (-1) in perfect rhythm, 0 = off.</summary>
+        public int GetOarBot(int i) => ValidOar(i) ? _oarBot[i] : 0;
+        public void SetOarBot(int i, int sign)
+        {
+            if (!HasStateAuthority || !ValidOar(i)) return;
+            if (Oars.Get(i).Rower.IsRealPlayer) sign = 0;
+            _oarBot[i] = (sbyte)Mathf.Clamp(sign, -1, 1);
+            if (sign == 0) ClearOar(i);
+        }
+
+        /// <summary>Host: last tick's thrust of oar <paramref name="i"/> (N, + ahead).</summary>
+        public float GetOarThrust(int i) => ValidOar(i) ? _oarThrust[i] : 0f;
+        public void SetOarThrust(int i, float newtons)
+        {
+            if (ValidOar(i)) _oarThrust[i] = newtons;
+        }
+
+        private void CollectOars()
+        {
+            System.Array.Clear(_oars, 0, _oars.Length);
+            _oarCount = 0;
+            foreach (OarStation oar in GetComponentsInChildren<OarStation>(true))
+            {
+                int i = oar.OarIndex;
+                if (i < 0 || i >= MaxOars) continue;
+                _oars[i] = oar;
+                _oarCount = Mathf.Max(_oarCount, i + 1);
+            }
+        }
+
         public struct LineInput
         {
             public bool Haul;
@@ -541,6 +687,7 @@ namespace RumOverboard.Networking
             YardSystem.Tick(this, sailsAggregator, dt, Runner.SimulationTime); // loads + yard swing first
             RopeSystem.Tick(this, dt);
             RopeSystem.Apply(this, sailsAggregator);
+            RowingSystem.Tick(this, dt); // sweeps: rhythm bots + thrust
             SailFurlSystem.Apply(this, sailsAggregator);
 
             LastImpactStrength = (_shipRuntime != null && waveField != null)

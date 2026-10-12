@@ -17,10 +17,11 @@ namespace RumOverboard.Gameplay.World.Map
         private const float TopX = 1.15f;   // across the ship
         private const float TopZ = 0.85f;   // along the ship
 
-        // Ship-local deck spots tried in order: aft of the main mast, beside the helm path, then midships.
+        // Ship-local deck spots tried in order: aft of the main mast, beside the helm path, then midships
+        // (clear of the sweeps' rowing stations along both sides).
         private static readonly Vector2[] Spots =
         {
-            new(1.2f, -5.5f), new(-1.2f, -5.5f), new(1.25f, -1.0f), new(-1.25f, -1.0f), new(0f, -5.5f), new(0f, 1.2f),
+            new(1.8f, -8.4f), new(-1.8f, -8.4f), new(0f, -8.4f), new(0f, 1.8f), new(0f, -2.6f),
         };
 
         public NetworkWorld World;
@@ -245,8 +246,8 @@ namespace RumOverboard.Gameplay.World.Map
             var overlaps = new Collider[16];
             foreach (Vector2 s in Spots)
             {
-                Vector3 from = t.TransformPoint(new Vector3(s.x, 3.4f, s.y));
-                int n = physics.Raycast(from, -t.up, hits, 4f, ~0, QueryTriggerInteraction.Ignore);
+                Vector3 from = t.TransformPoint(new Vector3(s.x, 4.2f, s.y));
+                int n = physics.Raycast(from, -t.up, hits, 4.5f, ~0, QueryTriggerInteraction.Ignore);
                 float best = float.MaxValue;
                 RaycastHit deck = default;
                 for (int i = 0; i < n; i++)
@@ -260,7 +261,7 @@ namespace RumOverboard.Gameplay.World.Map
                     continue;
 
                 Vector3 local = t.InverseTransformPoint(deck.point);
-                if (local.y < 0.6f || local.y > 2.2f)
+                if (local.y < 0.6f || local.y > 3.0f)
                     continue;
 
                 // Clearance: nothing of the ship (masts, guns, hatch, helm) inside the table volume.

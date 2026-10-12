@@ -82,7 +82,7 @@ namespace RumOverboard.Gameplay.Ocean.Features.SailFurl
         private static bool WorkerOnYard(NetworkShip ship, int sail, PlayerRef worker, SailFurlConfig cfg)
         {
             NetworkPlayer player = RopeSystem.FindPlayer(worker);
-            if (player == null || player.IsKnockedOut || player.IsSteering || player.IsHoldingRope)
+            if (player == null || player.IsKnockedOut || player.IsSteering || player.IsRowing || player.IsHoldingRope)
                 return false;
             YardFurlZone zone = ship.FurlZone(sail);
             if (zone == null)

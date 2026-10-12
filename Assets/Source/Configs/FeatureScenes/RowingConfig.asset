@@ -1,0 +1,30 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1830e0fb54e39df47a249ef089c6f173, type: 3}
+  m_Name: RowingConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.Features.Rowing.RowingConfig
+  StrokePeriod: 1.7
+  DriveFraction: 0.5
+  EarlyWindow: 0.4
+  LateWindow: 0.45
+  StartPower: 0.5
+  StreakStep: 0.17
+  EarlyPenalty: 0.25
+  SyncWindow: 0.3
+  SyncBonusPerRower: 0.1
+  MaxSyncBonus: 0.5
+  PeakForce: 3200
+  BackingFactor: 0.75
+  MaxRowSpeed: 3.5
+  YawLeverage: 14
+  SweepAngle: 24
+  LiftAngle: 9

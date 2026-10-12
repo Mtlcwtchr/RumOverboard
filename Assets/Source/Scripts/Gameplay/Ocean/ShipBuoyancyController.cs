@@ -58,6 +58,10 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private float lateralDrag = 12f;
         [SerializeField] private float angularDrag = 2.2f;
         [SerializeField] private float currentRelativeDrag = 2.5f;
+        [Tooltip("Extra planar resistance through the current at low speed (1/s). Zero disables it.")]
+        [Min(0f)] [SerializeField] private float lowSpeedDragRate;
+        [Tooltip("Extra low-speed resistance fades to zero at this forward speed (m/s).")]
+        [Min(0.1f)] [SerializeField] private float lowSpeedDragFadeSpeed = 1.5f;
 
         [Header("Keel (lateral resistance under way)")]
         [Tooltip("Sideways damping through the water at rest, 1/s (mass-independent). 0 = leave drift to the per-point drag.")]
@@ -326,6 +330,8 @@ namespace RumOverboard.Gameplay.Ocean
             if (lateralDrag < 0f) lateralDrag = 0f;
             if (angularDrag < 0f) angularDrag = 0f;
             if (currentRelativeDrag < 0f) currentRelativeDrag = 0f;
+            lowSpeedDragRate = Mathf.Max(0f, lowSpeedDragRate);
+            lowSpeedDragFadeSpeed = Mathf.Max(0.1f, lowSpeedDragFadeSpeed);
             if (keelBaseRate < 0f) keelBaseRate = 0f;
             if (keelRatePerHeadway < 0f) keelRatePerHeadway = 0f;
             if (rollStability < 0f) rollStability = 0f;
@@ -495,6 +501,18 @@ namespace RumOverboard.Gameplay.Ocean
                 : Vector3.up;
 
             ApplyKeelForce(simTime, dt, dragMul);
+            if (lowSpeedDragRate > 0f && _lastSubmergedPoints > 0)
+            {
+                // Use current velocity here: oscillating wave orbital velocities must not carry
+                // a resting hull along as if they were a steady current.
+                Vector3 throughCurrent = Vector3.ProjectOnPlane(rb.linearVelocity -
+                    oceanField.Sample(rb.worldCenterOfMass, simTime).currentVelocity, Vector3.up);
+                float headway = Mathf.Abs(Vector3.Dot(throughCurrent, transform.forward));
+                float fade = Mathf.Clamp01(1f - headway / lowSpeedDragFadeSpeed);
+                Vector3 lowSpeedForce = -throughCurrent * (rb.mass * lowSpeedDragRate * fade * dragMul);
+                rb.AddForce(lowSpeedForce, ForceMode.Force);
+                _lastResultantForce += lowSpeedForce;
+            }
 
             Vector3 stabilizationTorque = ComputeStabilityTorque(dragMul, _lastAverageSurfaceNormal);
             if (stabilizationTorque.sqrMagnitude > 0.000001f)

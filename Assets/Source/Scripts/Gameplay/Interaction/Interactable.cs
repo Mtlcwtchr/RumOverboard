@@ -15,6 +15,7 @@ namespace RumOverboard.Gameplay.Interaction
         BelayPin = 4,
         RopeEnd = 5,
         Yard = 6,
+        Oar = 7,
     }
 
     /// <summary>Who is looking at / using an interactable (host sim or local HUD).</summary>

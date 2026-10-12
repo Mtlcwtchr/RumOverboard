@@ -67,6 +67,29 @@ namespace RumOverboard.Gameplay.Diagnostics
                 yield break;
             }
             _player.InputOverride = () => _input;
+            if (Environment.GetCommandLineArgs().Contains("-sandboxBaselineScale"))
+            {
+                // Compare the previous hull size without rewriting the gameplay prefab.
+                const float scale = 1.5f;
+                _ship.transform.localScale /= scale;
+                _ship.Body.mass /= scale * scale;
+                _ship.Body.centerOfMass /= scale;
+                _ship.Body.linearDamping = 0.05f;
+#if UNITY_EDITOR
+                var so = new UnityEditor.SerializedObject(_ship.GetComponent<RumOverboard.Gameplay.Ocean.ShipBuoyancyController>());
+                so.FindProperty("windHullForceCoefficient").floatValue /= scale * scale;
+                so.FindProperty("maxWindForce").floatValue /= scale * scale;
+                so.FindProperty("lowSpeedDragRate").floatValue = 0f;
+                var points = so.FindProperty("points");
+                for (int i = 0; i < points.arraySize; i++)
+                {
+                    var p = points.GetArrayElementAtIndex(i);
+                    p.FindPropertyRelative("radius").floatValue /= scale;
+                    p.FindPropertyRelative("maxSubmersionDepth").floatValue /= scale;
+                }
+                so.ApplyModifiedPropertiesWithoutUndo();
+#endif
+            }
             Log($"spawned: player at {_player.transform.position}, ship at {_ship.transform.position}");
             yield return Wait(0.3f);
             {
@@ -79,6 +102,11 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Shots("start");
 
             yield return Run(FurledDrift());
+            if (Environment.GetCommandLineArgs().Contains("-sandboxDriftOnly"))
+            {
+                yield return Run(PartialRagdoll());
+                Finish(); yield break;
+            }
             yield return Run(ShipStability());
             yield return Run(IdleOnDeck());
             yield return Run(Walk());
@@ -216,11 +244,18 @@ namespace RumOverboard.Gameplay.Diagnostics
             _input.LookSpace = default;
             _input.LookYaw = _ship.transform.eulerAngles.y;
             _input.Move = new Vector2(0f, 1f);
-            yield return Wait(1.5f);
+            int groundedFrames = 0, frames = 0;
+            for (float t = 0f; t < 1.5f; t += Time.deltaTime)
+            {
+                frames++;
+                if (Has(PlayerState.Grounded)) groundedFrames++;
+                yield return null;
+            }
             _input = default;
             float moved = Vector3.Distance(start, ShipLocal(_player.transform.position));
             Log($"ragdoll: walked {moved:F2}m at ragdoll {_player.RagdollControl:F2}, grounded={Has(PlayerState.Grounded)}");
-            Check(moved > 1.5f && Has(PlayerState.Grounded), "ragdoll: still on your feet and walking with a partial ragdoll");
+            Check(moved > 1.5f && !_player.IsKnockedOut && groundedFrames > frames * 0.7f,
+                $"ragdoll: walking with a partial ragdoll, grounded {groundedFrames}/{frames} frames");
 
             _player.Knockout();
             yield return Wait(0.3f);
@@ -233,6 +268,7 @@ namespace RumOverboard.Gameplay.Diagnostics
 
         private IEnumerator Run(IEnumerator step)
         {
+            Debug.Log($"[SandboxSmoke] Running {step.GetType().Name}");
             while (true)
             {
                 object current;

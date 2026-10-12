@@ -18,8 +18,8 @@ namespace RumOverboard.Gameplay.World.Generation
     /// </summary>
     public static class WorldLayoutGenerator
     {
-        private const float ShipHalfLength = 10.5f;
-        private const float ShipHalfBeam = 2.7f;
+        private const float ShipHalfLength = 15.8f; // brig x1.5
+        private const float ShipHalfBeam = 4.0f;
 
         public static WorldLayout Generate(WorldGenConfig cfg, int seed, float windDegrees, float seaLevel)
         {

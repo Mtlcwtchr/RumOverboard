@@ -99,6 +99,17 @@ namespace RumOverboard.Gameplay.UI
                 },
                 new StateHintSet
                 {
+                    State = PlayerState.Rowing,
+                    Hints = new[]
+                    {
+                        new ControlHint("W", "Гребок — жми в такт, в зелёное окно"),
+                        new ControlHint("S", "Табанить (грести назад)"),
+                        new ControlHint("Один борт", "Гребут с одного борта — корабль поворачивает"),
+                        new ControlHint("E", "Бросить весло"),
+                    },
+                },
+                new StateHintSet
+                {
                     State = PlayerState.Swimming,
                     Hints = new[]
                     {

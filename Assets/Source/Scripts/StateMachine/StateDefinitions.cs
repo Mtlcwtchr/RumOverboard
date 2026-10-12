@@ -25,6 +25,7 @@ namespace RumOverboard.StateMachine
         Swimming = 1u << 3,
         Steering = 1u << 4, // standing at the helm; body locked, A/D turns the wheel
         HoldingRope = 1u << 5, // a line end in hand (action layer): LMB hauls, RMB eases, E on a pin ties, G drops
+        Rowing = 1u << 6,      // at a sweep (long oar); body locked, W/S pulls / backs in rhythm
 
         // Action group — layered on top of locomotion.
         DrinkingRum = 1u << 8,
@@ -67,6 +68,7 @@ namespace RumOverboard.StateMachine
         // this layer only sees the Core interfaces.
         public IClimbRail ClimbTarget;
         public IStationAnchor HelmTarget;
+        public IStationAnchor OarTarget;
         public Vector3 TargetPoint;
 
         // What we're currently attached to (set by the states on Enter, cleared on Exit).

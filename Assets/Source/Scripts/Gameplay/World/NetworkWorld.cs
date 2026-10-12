@@ -32,8 +32,8 @@ namespace RumOverboard.Gameplay.World
     public sealed class NetworkWorld : NetworkBehaviour, IShipSpawnPoseProvider
     {
         // Ship-local cleats for the mooring lines (x is mirrored to the side facing the pier).
-        private static readonly Vector3 BowCleat = new(1.3f, 1.7f, 8.3f);
-        private static readonly Vector3 SternCleat = new(1.9f, 1.8f, -8.4f);
+        private static readonly Vector3 BowCleat = new Vector3(1.3f, 1.7f, 8.3f) * 1.5f;   // brig x1.5
+        private static readonly Vector3 SternCleat = new Vector3(1.9f, 1.8f, -8.4f) * 1.5f;
         private const float BollardTopHeight = 0.55f;
         private const float SpawnHeight = 0.25f;
         private const float RestWarpSpeed = 0.6f;
