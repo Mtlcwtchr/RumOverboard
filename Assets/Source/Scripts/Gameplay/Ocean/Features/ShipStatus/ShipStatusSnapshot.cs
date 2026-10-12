@@ -1,6 +1,7 @@
 #if FUSION2
 using System.Collections.Generic;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
+using RumOverboard.Gameplay.Ocean.Simulation;
 using RumOverboard.Networking;
 using UnityEngine;
 
@@ -24,6 +25,13 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
             public bool FurlWorked;      // someone is on the yard right now
             public float Hoist;
             public float YardAngle;      // deg, + = starboard arm aft
+            /// <summary>
+            /// How well the yard is braced for the apparent wind: forward drive at the current yard
+            /// angle ÷ the best drive any yard angle the braces allow would give (0..1). -1 = no wind.
+            /// </summary>
+            public float Trim;
+            /// <summary>Sail area actually catching wind (m², hoist × unfurled).</summary>
+            public float Area;
             public string State;         // «скручен», «раскручен · поднят 80%», …
         }
 
@@ -62,6 +70,11 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
 
         public readonly List<SailStatus> Sails = new();
         public readonly List<LineStatus> Lines = new();
+
+        /// <summary>Area-weighted <see cref="SailStatus.Trim"/> of the sails that are set (0..1); -1 = none set / no wind.</summary>
+        public float SailEfficiency = -1f;
+        /// <summary>Sails set and catching wind.</summary>
+        public int SailsSet;
 
         public const float MsToKnots = 1.943844f;
 
@@ -102,6 +115,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
             }
 
             int sailCount = sails != null ? Mathf.Min(sails.SailCount, NetworkShip.MaxSails) : 0;
+            Vector3 awLocal = t.InverseTransformDirection(apparent);
+            awLocal.y = 0f;
+            float weighted = 0f, totalArea = 0f;
+            SailsSet = 0;
             for (int s = 0; s < sailCount; s++)
             {
                 var st = new SailStatus
@@ -114,10 +131,21 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
                     FurlWorked = ship.GetSailFurlWorker(s).IsRealPlayer,
                     Hoist = sails.GetHoist(s),
                     YardAngle = ship.GetYardAngle(s),
+                    Area = sails.GetEffectiveArea(s),
                 };
+                st.Trim = ApparentWindSpeed > 0.3f
+                    ? TrimEfficiency(awLocal, st.YardAngle, BraceLimit(ship, s), RestNormal(sails, s), sails.LiftFactor, sails.DragFactor, sails.SideForceFactor)
+                    : -1f;
                 st.State = SailStateText(st);
                 Sails.Add(st);
+                if (st.Area > 0.5f && st.Trim >= 0f)
+                {
+                    SailsSet++;
+                    weighted += st.Trim * st.Area;
+                    totalArea += st.Area;
+                }
             }
+            SailEfficiency = totalArea > 0.01f ? weighted / totalArea : -1f;
 
             float slackBelow = ShipStatusConfig.Active.SlackBelow;
             float humLoad = RiggingConfig.Active.RopeHumLoad;
@@ -153,6 +181,80 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
                     TensionText = load >= humLoad ? "перегруз" : tension < slackBelow ? "слабина" : "натянут",
                 });
             }
+        }
+
+        /// <summary>Widest brace angle (deg) the sail's braces allow; 60 if it has none.</summary>
+        private static float BraceLimit(NetworkShip ship, int sail)
+        {
+            for (int i = 0; i < NetworkShip.MaxLines; i++)
+            {
+                RigLine line = ship.Line(i);
+                if (line != null && line.SailIndex == sail &&
+                    (line.Kind == RigLineKind.BracePort || line.Kind == RigLineKind.BraceStarboard))
+                    return Mathf.Max(1f, line.BraceMaxAngle);
+            }
+            return 60f;
+        }
+
+        /// <summary>
+        /// Flat normal of the sail panel at rest (yard square), from its corners exactly like the
+        /// cloth's own normal (u across the yard × v down the sail) — the side lift is reckoned from.
+        /// </summary>
+        public static Vector3 RestNormal(ShipSailsAggregator sails, int flat)
+        {
+            if (sails != null && sails.TryGetFlatSail(flat, out var mast, out int li))
+            {
+                var p = mast.Sails[li];
+                Vector3 n = Vector3.Cross(p.topRightLocal - p.topLeftLocal, p.bottomLeftLocal - p.topLeftLocal);
+                n.y = 0f;
+                if (n.sqrMagnitude > 1e-6f)
+                    return n.normalized;
+            }
+            return Vector3.back;
+        }
+
+        /// <summary>
+        /// Forward drive (ship-local, per unit area and pressure) of a square sail whose rest normal is
+        /// <paramref name="restNormal"/>, on a yard turned <paramref name="yardDeg"/> (+ = starboard arm
+        /// aft, the panel turns about the mast like the cloth's sheet angle) in apparent wind
+        /// <paramref name="awLocal"/> — the same aerodynamics as the masts (<see cref="SailAerodynamicsSolver"/>).
+        /// </summary>
+        public static float ForwardDrive(Vector3 awLocal, float yardDeg, Vector3 restNormal, float lift, float drag, float side)
+        {
+            Vector3 n = Quaternion.AngleAxis(yardDeg, Vector3.up) * restNormal;
+            SailAerodynamicsResult res = SailAerodynamicsSolver.Solve(new SailAerodynamicsInput(
+                awLocal.normalized, n, Vector3.forward, 1f, 1f, 1f, 0f, lift, drag, side, 0f, 0f, true));
+            return res.DriveForce.z;
+        }
+
+        /// <summary>
+        /// Trim efficiency 0..1: drive at the current yard angle ÷ the best drive any yard angle
+        /// within ±<paramref name="maxBrace"/> gives in this wind. 0 when no angle drives (head to wind).
+        /// </summary>
+        public static float TrimEfficiency(Vector3 awLocal, float yardDeg, float maxBrace, Vector3 restNormal, float lift, float drag, float side)
+        {
+            awLocal.y = 0f;
+            if (awLocal.sqrMagnitude < 1e-4f)
+                return -1f;
+            float best = 0f;
+            for (float a = -maxBrace; a <= maxBrace + 0.01f; a += 2f)
+                best = Mathf.Max(best, ForwardDrive(awLocal, a, restNormal, lift, drag, side));
+            if (best < 1e-4f)
+                return 0f;
+            return Mathf.Clamp01(ForwardDrive(awLocal, Mathf.Clamp(yardDeg, -maxBrace, maxBrace), restNormal, lift, drag, side) / best);
+        }
+
+        /// <summary>Best yard angle (deg) within ±<paramref name="maxBrace"/> for this wind.</summary>
+        public static float BestYardAngle(Vector3 awLocal, float maxBrace, Vector3 restNormal, float lift, float drag, float side)
+        {
+            awLocal.y = 0f;
+            float best = float.MinValue, bestA = 0f;
+            for (float a = -maxBrace; a <= maxBrace + 0.01f; a += 2f)
+            {
+                float d = ForwardDrive(awLocal, a, restNormal, lift, drag, side);
+                if (d > best + 1e-6f) { best = d; bestA = a; }
+            }
+            return bestA;
         }
 
         /// <summary>Signed angle (deg) the wind comes FROM, relative to the bow: + starboard, − port.</summary>

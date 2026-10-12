@@ -186,7 +186,31 @@ namespace RumOverboard.Gameplay.Diagnostics
             if (viewer == null) yield break;
             viewer.Open(table);
             Check(viewer.IsOpen && UiInputCapture.Active, "chart: opening captures input");
+            Check(viewer.Ship == _ship, "chart: the viewer reads the table's ship");
+            // The player isn't at the table, so the viewer closes next frame: check the log read on open.
+            Vector3 f = _ship.transform.forward;
+            float heading = Mathf.Repeat(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg, 360f);
+            Check(Mathf.Abs(Mathf.DeltaAngle(viewer.Snapshot.HeadingDeg, heading)) < 0.5f,
+                $"chart: log shows the ship's course ({viewer.Snapshot.HeadingDeg:F0}° vs {heading:F0}°)");
             yield return Wait(0.3f);
+            f = _ship.transform.forward;
+            heading = Mathf.Repeat(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg, 360f);
+            Texture2D icon = ChartViewer.ShipIcon.Texture;
+            Check(icon != null && icon.GetPixel(0, 0).a < 0.01f && icon.GetPixel(32, 32).a > 0.99f && icon.GetPixel(32, 58).a > 0.5f && icon.GetPixel(32, 63).a < 0.01f,
+                "chart: ship icon is a hull, bow up, on a clear background");
+
+            Transform marker = table.Marker;
+            Check(marker != null && marker.GetComponent<Renderer>().enabled, "chart: ship marker on the table's chart");
+            if (marker != null)
+            {
+                Vector3 p = _ship.transform.position;
+                Vector2 uv = _world.Map.WorldToUv(new Vector2(p.x, p.z));
+                Transform chart = table.transform.Find("Chart");
+                Vector3 local = marker.localPosition - chart.localPosition;
+                Vector2 got = new(local.x / chart.localScale.x + 0.5f, local.z / chart.localScale.y + 0.5f);
+                Check(Vector2.Distance(got, uv) < 0.01f, $"chart: marker sits at the ship's spot on the chart ({got} vs {uv})");
+                Check(Mathf.Abs(Mathf.DeltaAngle(marker.localEulerAngles.y, heading)) < 1f, "chart: marker points along the ship's heading");
+            }
             viewer.Close();
             Check(!viewer.IsOpen && !UiInputCapture.Active, "chart: closing releases input");
         }

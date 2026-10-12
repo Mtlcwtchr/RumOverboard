@@ -27,6 +27,13 @@ namespace RumOverboard.Gameplay.World.Map
         private Renderer _chart;
         private Texture _applied;
         private Material _material;
+        private Transform _marker;
+        private Renderer _markerRenderer;
+        private Material _markerMaterial;
+        private NetworkShip _ship;
+
+        /// <summary>The little ship on the table's chart (null for tables built before it existed).</summary>
+        public Transform Marker => _marker;
 
         public override InteractionKind Kind => InteractionKind.Generic;
 
@@ -38,6 +45,7 @@ namespace RumOverboard.Gameplay.World.Map
         private void LateUpdate()
         {
             Texture tex = World != null && World.Map != null ? World.Map.Texture : null;
+            UpdateMarker(tex);
             if (tex == _applied || _chart == null)
                 return;
             _applied = tex;
@@ -60,6 +68,60 @@ namespace RumOverboard.Gameplay.World.Map
         {
             if (_material != null)
                 WorldGeometryBuilder.DestroySafe(_material);
+            if (_markerMaterial != null)
+                WorldGeometryBuilder.DestroySafe(_markerMaterial);
+        }
+
+        // The chart quad lies with texture-up along table +Z: put the marker at the ship's UV inside it.
+        private void UpdateMarker(Texture tex)
+        {
+            if (_marker == null || _chart == null)
+                return;
+            if (_ship == null)
+                _ship = GetComponentInParent<NetworkShip>();
+            bool show = tex != null && _ship != null && World != null && World.Map != null;
+            if (_markerRenderer.enabled != show)
+                _markerRenderer.enabled = show;
+            if (!show)
+                return;
+            Vector3 pos = _ship.transform.position;
+            Vector2 uv = World.Map.WorldToUv(new Vector2(pos.x, pos.z));
+            uv.x = Mathf.Clamp01(uv.x);
+            uv.y = Mathf.Clamp01(uv.y);
+            Vector3 scale = _chart.transform.localScale;
+            Vector3 c = _chart.transform.localPosition;
+            _marker.localPosition = new Vector3(c.x + (uv.x - 0.5f) * scale.x, c.y + 0.004f, c.z + (uv.y - 0.5f) * scale.y);
+            Vector3 fwd = _ship.transform.forward;
+            float heading = Mathf.Atan2(fwd.x, fwd.z) * Mathf.Rad2Deg;
+            _marker.localRotation = Quaternion.Euler(0f, heading, 0f);
+        }
+
+        private static Mesh _markerMesh;
+
+        // Flat top-down hull (bow +Z), ~1 unit long; scaled down on the table.
+        private static Mesh MarkerMesh()
+        {
+            if (_markerMesh != null)
+                return _markerMesh;
+            var v = new[]
+            {
+                new Vector3(0f, 0f, 0f),
+                new Vector3(0f, 0f, 0.5f), new Vector3(0.22f, 0f, 0.18f), new Vector3(0.22f, 0f, -0.3f),
+                new Vector3(0.13f, 0f, -0.48f), new Vector3(-0.13f, 0f, -0.48f), new Vector3(-0.22f, 0f, -0.3f),
+                new Vector3(-0.22f, 0f, 0.18f),
+            };
+            var tris = new int[(v.Length - 1) * 3];
+            for (int i = 1; i < v.Length; i++)
+            {
+                int j = i == v.Length - 1 ? 1 : i + 1;
+                tris[(i - 1) * 3] = 0;
+                tris[(i - 1) * 3 + 1] = i;
+                tris[(i - 1) * 3 + 2] = j;
+            }
+            _markerMesh = new Mesh { name = "ChartShipMarker", vertices = v, triangles = tris, hideFlags = HideFlags.DontSave };
+            _markerMesh.RecalculateNormals();
+            _markerMesh.RecalculateBounds();
+            return _markerMesh;
         }
 
         /// <summary>Builds a chart table on the ship's deck (once per ship; identical on every peer).</summary>
@@ -128,6 +190,21 @@ namespace RumOverboard.Gameplay.World.Map
             table.World = world;
             table._chart = mr;
             table._material = chartMat;
+
+            var markerGo = new GameObject("ShipMarker") { layer = layer };
+            markerGo.transform.SetParent(go.transform, false);
+            markerGo.transform.localPosition = chartGo.transform.localPosition;
+            markerGo.transform.localScale = Vector3.one * 0.07f;
+            markerGo.AddComponent<MeshFilter>().sharedMesh = MarkerMesh();
+            var markerMr = markerGo.AddComponent<MeshRenderer>();
+            table._markerMaterial = WorldGeometryBuilder.UnlitMaterial(new Color(0.6f, 0.1f, 0.06f));
+            table._markerMaterial.name = "ChartTable_ShipMarker";
+            markerMr.sharedMaterial = table._markerMaterial;
+            markerMr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            markerMr.enabled = false;
+            table._marker = markerGo.transform;
+            table._markerRenderer = markerMr;
+            table._ship = ship;
             table.Prompt = "Рассмотреть карту";
             table.MaxDistance = 2.6f;
             table.SetColliders(new Collider[] { box });

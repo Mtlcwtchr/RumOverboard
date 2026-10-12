@@ -91,7 +91,7 @@ MonoBehaviour:
   swellSteepness: 0.56
   directionJitterDegrees: 10
   globalCurrentDirection: {x: 0.7, y: 0.7}
-  globalCurrentSpeed: 0.7
+  globalCurrentSpeed: 0.3
   foamIntensity: 0.9
   crestFoamThreshold: 0.48
   shallowColorBoost: 0.5

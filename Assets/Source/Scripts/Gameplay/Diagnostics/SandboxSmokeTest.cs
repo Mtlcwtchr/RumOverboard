@@ -78,6 +78,7 @@ namespace RumOverboard.Gameplay.Diagnostics
             }
             yield return Shots("start");
 
+            yield return Run(FurledDrift());
             yield return Run(ShipStability());
             yield return Run(IdleOnDeck());
             yield return Run(Walk());
@@ -94,8 +95,41 @@ namespace RumOverboard.Gameplay.Diagnostics
             yield return Run(PartialRagdoll());
             yield return Run(IdleWhileSailing());
             yield return Run(SteerUnderSail());
+            yield return Run(Beat());
             yield return Shots("sailing");
             Finish();
+        }
+
+        // Sails furled, nobody at the wheel: the sea current + windage must not carry her off like a raft.
+        private IEnumerator FurledDrift()
+        {
+            var wave = FindAnyObjectByType<RumOverboard.Gameplay.Ocean.OceanWaveField>();
+            var buoy = _ship.GetComponent<RumOverboard.Gameplay.Ocean.ShipBuoyancyController>();
+            Vector3 start = _ship.transform.position;
+            Vector3 current = Vector3.zero, wind = Vector3.zero;
+            int n = 0;
+            float t0 = Time.time;
+            while (Time.time - t0 < 16f)
+            {
+                if (wave != null)
+                {
+                    current += wave.Sample(_ship.transform.position, wave.OceanTimeNow).currentVelocity;
+                    n++;
+                }
+                if (buoy != null)
+                    wind += buoy.LastWindForce;
+                yield return null;
+            }
+            float secs = Time.time - t0;
+            Vector3 moved = Vector3.ProjectOnPlane(_ship.transform.position - start, Vector3.up);
+            current = n > 0 ? Vector3.ProjectOnPlane(current / n, Vector3.up) : Vector3.zero;
+            wind = n > 0 ? Vector3.ProjectOnPlane(wind / n, Vector3.up) : Vector3.zero;
+            float drift = moved.magnitude / Mathf.Max(0.1f, secs);
+            Vector3 vEnd = Vector3.ProjectOnPlane(_ship.Body.linearVelocity, Vector3.up);
+            Log($"drift: furled, {secs:F1}s — ship drifts {drift:F2} m/s (now {vEnd.magnitude:F2}), sea current {current.magnitude:F2} m/s " +
+                $"({Vector3.Angle(moved, current):F0}° off the drift), hull windage {wind.magnitude:F0} N ({Vector3.Angle(moved, wind):F0}° off the drift)");
+            Check(current.magnitude < 0.45f, $"drift: sea current is gentle ({current.magnitude:F2} m/s < 0.45)");
+            Check(drift < 0.5f, $"drift: furled ship isn't swept away ({drift:F2} m/s < 0.5)");
         }
 
         // Two braces per yard: hauling one against a tied partner is blocked; with the partner
@@ -355,14 +389,131 @@ namespace RumOverboard.Gameplay.Diagnostics
                             $"| yaw N·m: sails {sailYaw:F0}, hull {hullYaw:F0}");
                         next += 2f;
                     }
+                    // Bearing away: stop at ~35° — swinging on until the wind is abeam of square
+                    // yards stalls her, and with no way on the rudder can't bring her back.
+                    if (pass == 0 && total * dir > 35f)
+                        break;
                     yield return null;
                 }
                 turned[pass] = total;
                 _input = default;
                 yield return Wait(0.2f);
             }
-            Check(turned[0] * away > 25f, $"steer: holding {(away > 0 ? "D" : "A")} bears her away ({turned[0]:F1}° in 7s)");
+            Check(turned[0] * away > 25f, $"steer: holding {(away > 0 ? "D" : "A")} bears her away ({turned[0]:F1}° in ≤7s)");
             Check(turned[1] * -away > 15f, $"steer: holding {(away > 0 ? "A" : "D")} brings her back ({turned[1]:F1}° in 12s)");
+            yield return Press(default);
+        }
+
+        // Zig-zag upwind: yards braced sharp, the helmsman holds her ~55° off the true wind. On each
+        // tack she must make ground to windward, and she must come about from one tack to the other.
+        private IEnumerator Beat()
+        {
+            var station = SimWorld.All<Interactable>().OfType<HelmStation>().FirstOrDefault(s => s.Ship() == _ship);
+            if (station == null) { Fail("beat: no HelmStation"); yield break; }
+            if (_ship.Sails == null || _ship.Sails.WindSystem == null) { Fail("beat: no wind"); yield break; }
+            yield return PlaceAt(station.StandPosition + Vector3.up * 0.1f, station.StandRotation);
+            yield return Press(station.Ref);
+            Check(Has(PlayerState.Steering), "beat: took the wheel");
+            if (!Has(PlayerState.Steering)) yield break;
+
+            const float offWind = 55f;
+            var snap = new ShipStatusSnapshot();
+            float WindFrom()
+            {
+                snap.Capture(_ship, _ship.Body.linearVelocity, _ship.Runner.SimulationTime);
+                return snap.TrueWindFrom;
+            }
+            Vector3 Upwind()
+            {
+                Vector3 w = _ship.Sails.WindSystem.EvaluateWind(_ship.transform.position, _ship.Runner.SimulationTime);
+                w.y = 0f;
+                return -w.normalized;
+            }
+            void BraceSharp(float windFrom)
+            {
+                // Wind on the starboard bow → yards round to port (−), and vice versa; both braces made fast.
+                for (int l = 0; l < NetworkShip.MaxLines; l++)
+                {
+                    RigLine line = _ship.Line(l);
+                    if (line == null || (line.Kind != RigLineKind.BracePort && line.Kind != RigLineKind.BraceStarboard))
+                        continue;
+                    float max = Mathf.Max(1f, line.BraceMaxAngle);
+                    float yard = windFrom >= 0f ? -max : max;
+                    float v = line.Kind == RigLineKind.BracePort ? (max - yard) / (2f * max) : (yard + max) / (2f * max);
+                    _ship.SetLineOut(l, line.OutFromValue(v));
+                }
+            }
+
+            float side = WindFrom() >= 0f ? 1f : -1f; // + = wind on the starboard bow
+            float[] vmg = new float[2];
+            float[] ahead = new float[2];
+            bool cameAbout = false;
+            for (int leg = 0; leg < 2; leg++, side = -side)
+            {
+                float settle = leg == 0 ? 25f : 45f;
+                const float measure = 25f;
+                Vector3 start = _ship.transform.position;
+                Vector3 upwind = Upwind();
+                float speedSum = 0f, fromSum = 0f;
+                int samples = 0;
+                bool tacking = leg == 1;
+                for (float t = 0f, next = 0f; t < settle + measure; t += Time.deltaTime)
+                {
+                    float from = WindFrom();
+                    BraceSharp(from);
+
+                    // Autopilot: hold the wind at side·offWind off the bow (D turns her to starboard).
+                    // Coming about: helm hard over until she's well onto the new tack, so she carries her way through.
+                    float err = Mathf.DeltaAngle(side * offWind, from);
+                    if (tacking && from * side >= offWind - 10f)
+                    {
+                        tacking = false;
+                        cameAbout = true;
+                        Log($"beat: came about in {t:F1}s, {Vector3.Dot(_ship.Body.linearVelocity, _ship.transform.forward):F2} m/s ahead");
+                    }
+                    float yawRate = _ship.Body.angularVelocity.y * Mathf.Rad2Deg;
+                    float want = tacking ? Mathf.Sign(err) : Mathf.Clamp(err * 0.03f - yawRate * 0.3f, -0.8f, 0.8f);
+                    _input = default;
+                    _input.Move = new Vector2(tacking ? want : Mathf.Clamp((want - station.Helm.WheelNormalized) * 4f, -1f, 1f), 0f);
+
+                    if (t < settle)
+                        start = _ship.transform.position;
+                    else
+                    {
+                        speedSum += Vector3.Dot(_ship.Body.linearVelocity, _ship.transform.forward);
+                        fromSum += from;
+                        samples++;
+                    }
+                    if (t >= next)
+                    {
+                        Vector3 v = Vector3.ProjectOnPlane(_ship.Body.linearVelocity, Vector3.up);
+                        float leeway = v.sqrMagnitude > 0.01f ? Vector3.SignedAngle(Vector3.ProjectOnPlane(_ship.transform.forward, Vector3.up), v, Vector3.up) : 0f;
+                        Vector3 sailF = Vector3.zero;
+                        var sailsAgg = _ship.Sails;
+                        for (int si = 0; sailsAgg.TryGetFlatSail(si, out var m, out int li); si++)
+                            sailF += m.Sails[li].lastForce;
+                        var buoy = _ship.GetComponent<RumOverboard.Gameplay.Ocean.ShipBuoyancyController>();
+                        Vector3 windF = buoy != null ? buoy.LastWindForce : Vector3.zero;
+                        Vector3 keelF = buoy != null ? buoy.LastKeelForce : Vector3.zero;
+                        Vector3 waterF = buoy != null ? buoy.LastResultantForce - windF - keelF : Vector3.zero;
+                        Vector3 bodyDamp = -v * (_ship.Body.mass * _ship.Body.linearDamping);
+                        Vector3 L(Vector3 w) => _ship.transform.InverseTransformDirection(w);
+                        Log($"beat leg {leg} t={t:F0}s wind from {from:F0}° fwd {Vector3.Dot(v, _ship.transform.forward):F2}m/s " +
+                            $"leeway {leeway:F0}° to windward {Vector3.Dot(v, upwind):F2}m/s wheel {station.Helm.WheelNormalized:F2} " +
+                            $"yard0 {_ship.GetYardAngle(0):F0}° | N (side/ahead): sails {L(sailF).x:F0}/{L(sailF).z:F0} " +
+                            $"windage {L(windF).x:F0}/{L(windF).z:F0} keel {L(keelF).x:F0} water {L(waterF).x:F0}/{L(waterF).z:F0} body damping {L(bodyDamp).x:F0}/{L(bodyDamp).z:F0}");
+                        next += 5f;
+                    }
+                    yield return null;
+                }
+                vmg[leg] = Vector3.Dot(Vector3.ProjectOnPlane(_ship.transform.position - start, Vector3.up), upwind) / measure;
+                ahead[leg] = samples > 0 ? speedSum / samples : 0f;
+                Log($"beat leg {leg}: avg wind from {(samples > 0 ? fromSum / samples : 0f):F0}°, {ahead[leg]:F2} m/s ahead, made good to windward {vmg[leg]:F2} m/s");
+            }
+            _input = default;
+            Check(vmg[0] > 0.2f, $"beat: close-hauled she makes ground to windward ({vmg[0]:F2} m/s, {ahead[0]:F2} m/s ahead)");
+            Check(cameAbout, "beat: she comes about onto the other tack");
+            Check(vmg[1] > 0.2f, $"beat: and to windward on the other tack too ({vmg[1]:F2} m/s, {ahead[1]:F2} m/s ahead)");
             yield return Press(default);
         }
 
@@ -639,6 +790,32 @@ namespace RumOverboard.Gameplay.Diagnostics
             Check(ShipStatusWidget.CompassName(0f) == "С" && ShipStatusWidget.CompassName(93f) == "В" &&
                   ShipStatusWidget.CompassName(-40f) == "СЗ" && ShipStatusWidget.CompassName(530f) == "Ю",
                 "status: compass point names");
+
+            {
+                var sa = _ship.Sails;
+                Vector3 n0 = ShipStatusSnapshot.RestNormal(sa, 0);
+                float L = sa.LiftFactor, D = sa.DragFactor, S = sa.SideForceFactor;
+                float run0 = ShipStatusSnapshot.TrimEfficiency(Vector3.forward, 0f, 60f, n0, L, D, S);
+                float run55 = ShipStatusSnapshot.TrimEfficiency(Vector3.forward, 55f, 60f, n0, L, D, S);
+                float head = ShipStatusSnapshot.TrimEfficiency(Vector3.back, 0f, 60f, n0, L, D, S);
+                var quarter = new Vector3(-0.7f, 0f, 0.7f); // from the starboard quarter
+                float qBest = ShipStatusSnapshot.BestYardAngle(quarter, 60f, n0, L, D, S);
+                float qGood = ShipStatusSnapshot.TrimEfficiency(quarter, -45f, 60f, n0, L, D, S);
+                float qBad = ShipStatusSnapshot.TrimEfficiency(quarter, 45f, 60f, n0, L, D, S);
+                Log($"trim: run square {run0:P0}, run braced 55° {run55:P0}, head {head:P0}; quarter best yard {qBest:F0}°, -45° {qGood:P0}, +45° {qBad:P0}");
+                Check(run0 > 0.95f && run55 < 0.9f, "trim: running free, square yards drive best");
+                Check(head == 0f, "trim: head to wind nothing drives");
+                Check(qBest < 0f && qGood > qBad + 0.2f, "trim: a quarter wind wants the yards braced round like the auto-brace (broadside)");
+
+                // Close-hauled: apparent wind 45° on the starboard bow, yards braced sharp to port.
+                var closeHauled = new Vector3(-Mathf.Sin(45f * Mathf.Deg2Rad), 0f, -Mathf.Cos(45f * Mathf.Deg2Rad));
+                float chBest = ShipStatusSnapshot.BestYardAngle(closeHauled, 60f, n0, L, D, S);
+                float chDrive = ShipStatusSnapshot.ForwardDrive(closeHauled, chBest, n0, L, D, S);
+                float chWrong = ShipStatusSnapshot.ForwardDrive(closeHauled, -chBest, n0, L, D, S);
+                Log($"trim: close-hauled (AW 45°) best yard {chBest:F0}°, drive {chDrive:F2} (other way {chWrong:F2}), running {ShipStatusSnapshot.ForwardDrive(Vector3.forward, 0f, n0, L, D, S):F2}");
+                Check(chBest < -30f && chDrive > 0.15f && chWrong <= 0.001f,
+                    "trim: close-hauled the sails drive forward with the yards braced sharp (lift, not drag)");
+            }
             yield return null;
             yield return null;
             if (widget.IsShowing && ShipStatusConfig.Active.NorthUp)

@@ -31,12 +31,11 @@ namespace RumOverboard.Gameplay.World
         {
             Keyboard kb = Keyboard.current;
             if (kb != null && kb.f6Key.wasPressedThisFrame)
-            {
                 visible = !visible;
-                Cursor.lockState = visible ? CursorLockMode.None : CursorLockMode.Locked;
-                Cursor.visible = visible;
-            }
+            RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, visible);
         }
+
+        private void OnDisable() => RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, false);
 
         private void OnGUI()
         {

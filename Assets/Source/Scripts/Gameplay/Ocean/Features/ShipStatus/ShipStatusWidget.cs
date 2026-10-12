@@ -215,6 +215,9 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
                 _sb.Append($"дует {SideText(s.TrueWindFrom)}");
                 if (cfg.ShowApparentWind)
                     _sb.Append($"\n<color=#8CD1FF>вымпел. {s.ApparentWindSpeed:0.0} м/с, {SideShort(s.ApparentWindFrom)}</color>");
+                _sb.Append(s.SailEfficiency >= 0f
+                    ? $"\nпаруса ловят ветер: <color={TrimColor(s.SailEfficiency)}><b>{Mathf.RoundToInt(s.SailEfficiency * 100f)}%</b></color>"
+                    : "\nпаруса убраны");
             }
             else
             {
@@ -257,6 +260,9 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
             if (cfg.ShowSails)
                 RefreshSails(cfg);
         }
+
+        /// <summary>Rich-text colour for a 0..1 sail trim: red → amber → green.</summary>
+        public static string TrimColor(float trim) => trim >= 0.85f ? "#7EE07E" : trim >= 0.55f ? "#FFD152" : "#FF8A70";
 
         private static readonly string[] CompassPoints = { "С", "СВ", "В", "ЮВ", "Ю", "ЮЗ", "З", "СЗ" };
 
@@ -337,7 +343,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.ShipStatus
 
                 var st = _snapshot.Sails[i];
                 string stateColor = st.FurlInProgress ? "#FFD152" : st.Furl >= 0.5f ? "#B0A48F" : "#9BE39B";
-                row.Title.text = $"<b>{Cap(st.Name)}</b>  <color={stateColor}>{st.State}</color>  <color=#9AA7B5>рей {st.YardAngle:+0;-0;0}°</color>";
+                string trim = st.Area > 0.5f && st.Trim >= 0f
+                    ? $"  <color={TrimColor(st.Trim)}>тяга {Mathf.RoundToInt(st.Trim * 100f)}%</color>"
+                    : string.Empty;
+                row.Title.text = $"<b>{Cap(st.Name)}</b>  <color={stateColor}>{st.State}</color>  <color=#9AA7B5>рей {st.YardAngle:+0;-0;0}°</color>{trim}";
 
                 bool showLines = cfg.ShowLines;
                 if (row.ChipsRoot.activeSelf != showLines) row.ChipsRoot.SetActive(showLines);

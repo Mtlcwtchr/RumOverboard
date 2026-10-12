@@ -22,12 +22,11 @@ namespace RumOverboard.Gameplay.Ocean.Features.WaterInteraction
         {
             var kb = Keyboard.current;
             if (kb != null && kb.f3Key.wasPressedThisFrame)
-            {
                 visible = !visible;
-                Cursor.lockState = visible ? CursorLockMode.None : CursorLockMode.Locked;
-                Cursor.visible = visible;
-            }
+            RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, visible);
         }
+
+        private void OnDisable() => RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, false);
 
         private void OnGUI()
         {

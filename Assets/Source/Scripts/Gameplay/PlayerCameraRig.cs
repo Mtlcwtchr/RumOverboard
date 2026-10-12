@@ -103,6 +103,13 @@ namespace RumOverboard.Gameplay
             var kb = Keyboard.current;
             if (kb != null && kb.escapeKey.wasPressedThisFrame)
                 ApplyCursorLock(false);
+            if (UiInputCapture.DebugWindowOpen)
+            {
+                // A debug window is open: keep the cursor free so its sliders can be used.
+                if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                return;
+            }
             var mouse = Mouse.current;
             if (_target != null && mouse != null && mouse.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked &&
                 !UiInputCapture.Active)
@@ -225,7 +232,7 @@ namespace RumOverboard.Gameplay
 
         private void AccumulateLook()
         {
-            if ((Cursor.lockState != CursorLockMode.Locked && lockCursor) || UiInputCapture.Active)
+            if ((Cursor.lockState != CursorLockMode.Locked && lockCursor) || UiInputCapture.Active || UiInputCapture.DebugWindowOpen)
                 return;
 
             Vector2 delta = Vector2.zero;
