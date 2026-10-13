@@ -34,6 +34,12 @@ namespace RumOverboard.Networking
             Accumulate();
 
             var data = new NetworkInputData();
+            if (RumOverboard.Gameplay.UiInputCapture.Active)
+            {
+                // A full-screen UI owns the keyboard: stand still, swallow latched taps.
+                _jump = _interact = _sprint = _ragdoll = _drink = _drop = false;
+                return data;
+            }
             var kb = Keyboard.current;
             var gp = Gamepad.current;
 

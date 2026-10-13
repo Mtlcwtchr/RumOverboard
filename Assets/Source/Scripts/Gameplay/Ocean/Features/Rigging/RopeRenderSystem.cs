@@ -7,10 +7,15 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
 {
     /// <summary>
     /// Client-derived rope visuals (GDD tier C): replicated line state in, curves out.
-    ///   aloft (sail corner) → lead block on the mast → free end (in hands / on a pin / loose).
-    /// The deck-side span sags by its slack (rope length minus straight distance) so a taut line
-    /// reads taut and a slack one hangs. A tied line shows a coil on its pin; a loose end a knot.
-    /// Nothing here is networked or physical.
+    ///   aloft (sail corner, swung with the braced yard) → lead block on the mast → free end
+    ///   (in hands / on a pin / loose).
+    ///
+    /// TENSION LOOK: every line gets a tension 0..1 from its replicated load
+    /// (<see cref="Tension"/>): a loaded line is drawn straight, an unloaded one hangs in a belly and
+    /// sways; an overloaded one shivers. A brace holding the yard at its stop reads taut even in a
+    /// calm, the other brace of that yard hangs by the rope the swing has given it. Rope in hand or
+    /// loose adds its real excess (rope out minus the straight distance) to the sag; on a pin the
+    /// excess goes into the coil. Nothing here is networked or physical.
     /// </summary>
     public static class RopeRenderSystem
     {
@@ -23,6 +28,7 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             public Transform Knot;
             public Vector3 SmoothedEnd;
             public bool HasEnd;
+            public float Tension = -1f; // smoothed, -1 = not initialised
         }
 
         private static readonly Dictionary<RigLine, Visual> Visuals = new();
@@ -32,6 +38,8 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
 
         public static void Render(NetworkShip ship)
         {
+            RiggingConfig cfg = RiggingConfig.Active;
+            float time = Time.time;
             for (int i = 0; i < NetworkShip.MaxLines; i++)
             {
                 RigLine line = ship.Line(i);
@@ -59,11 +67,35 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
                 v.SmoothedEnd = ship.transform.InverseTransformPoint(end);
                 v.HasEnd = true;
 
+                // Tension, smoothed so a line doesn't snap between straight and slack.
+                float target = Tension(ship, i, out float yardSlack);
+                v.Tension = v.Tension < 0f
+                    ? target
+                    : Mathf.Lerp(v.Tension, target, 1f - Mathf.Exp(-Mathf.Max(0.1f, cfg.RopeTensionResponse) * Time.deltaTime));
+                float slackLook = 1f - v.Tension;
+
+                float load = ship.GetLineLoad(i);
+                float hum = cfg.RopeHumAmplitude * Mathf.Clamp01((load - cfg.RopeHumLoad) / Mathf.Max(0.01f, cfg.RopeHumLoad));
+                float humPhase = time * cfg.RopeHumFrequency * Mathf.PI * 2f + i * 1.3f;
+                float sway = cfg.RopeSwayAmplitude * slackLook *
+                             Mathf.Sin(time * cfg.RopeSwayFrequency * Mathf.PI * 2f + i * 1.7f);
+
                 float rope = ship.GetLineOut(i);
+                float span = Vector3.Distance(block, end);
+                float excess = Mathf.Max(0f, rope - span);
+                // On a pin the spare rope is coiled; in hand / loose it hangs in the span.
+                float physical = mode == RigLineMode.Tied ? 0f : excess;
+                float deckSlack = cfg.RopeSlackSag * span * slackLook + physical + yardSlack * 0.5f;
+
                 int count = 0;
                 if (line.Aloft != null)
-                    count = WriteSag(line.Aloft.position, block, 0.02f, 0);
-                count = WriteSag(block, end, Mathf.Max(0f, rope - Vector3.Distance(block, end)), Mathf.Max(0, count - 1));
+                {
+                    Vector3 aloft = AloftPoint(ship, line);
+                    float aloftSpan = Vector3.Distance(aloft, block);
+                    float aloftSlack = 0.01f + cfg.RopeSlackSag * aloftSpan * slackLook + yardSlack;
+                    count = WriteSag(aloft, block, aloftSlack, 0, sway * 0.7f, hum, humPhase);
+                }
+                count = WriteSag(block, end, deckSlack, Mathf.Max(0, count - 1), sway, hum, humPhase + 0.9f);
 
                 v.Line.positionCount = count;
                 if (!Exact.TryGetValue(count, out Vector3[] exact))
@@ -73,7 +105,10 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
 
                 v.Coil.gameObject.SetActive(mode == RigLineMode.Tied);
                 if (mode == RigLineMode.Tied)
+                {
                     v.Coil.position = end + Vector3.down * 0.18f;
+                    v.Coil.localScale = Vector3.one * Mathf.Lerp(0.8f, 1.45f, Mathf.Clamp01(excess / 4f));
+                }
                 v.Knot.gameObject.SetActive(mode != RigLineMode.Tied);
                 v.Knot.position = end;
 
@@ -82,6 +117,65 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             }
         }
 
+        /// <summary>
+        /// How taut line <paramref name="i"/> is right now, 0 (slack) .. 1 (taut), from its replicated
+        /// load (any peer). <paramref name="yardSlack"/>: rope (m) a brace has been given by the yard
+        /// swinging away from it (0 for halyards and for the brace holding the yard).
+        /// </summary>
+        public static float Tension(NetworkShip ship, int i, out float yardSlack)
+        {
+            yardSlack = 0f;
+            RigLine line = ship != null ? ship.Line(i) : null;
+            if (line == null)
+                return 0f;
+            RiggingConfig cfg = RiggingConfig.Active;
+            float t = Mathf.Clamp01(ship.GetLineLoad(i) / Mathf.Max(0.001f, cfg.RopeTautLoad));
+            if (!line.IsBrace || ship.GetLineMode(i) == RigLineMode.Loose)
+                return t;
+
+            int partner = ship.BracePartner(i);
+            int port = line.Kind == RigLineKind.BracePort ? i : partner;
+            int star = line.Kind == RigLineKind.BraceStarboard ? i : partner;
+            YardSystem.Limits(ship, port, star, line.BraceMaxAngle, out float lo, out float hi);
+            float angle = ship.GetYardAngle(line.SailIndex);
+            // The port brace stops the yard at hi, the starboard one at lo.
+            float gap = line.Kind == RigLineKind.BracePort ? hi - angle : angle - lo;
+            gap = Mathf.Max(0f, gap);
+            if (gap < 0.75f)
+                return Mathf.Max(t, cfg.BraceContactTension);
+            yardSlack = YardArm(ship, line) * gap * Mathf.Deg2Rad;
+            return t * Mathf.Clamp01(1f - gap / 10f);
+        }
+
+        public static float Tension(NetworkShip ship, int i) => Tension(ship, i, out _);
+
+        // Where the line goes aloft: its authored point, swung with the sail's yard around the same
+        // pivot as the cloth (top-edge middle) so braces / halyards follow the braced yard.
+        private static Vector3 AloftPoint(NetworkShip ship, RigLine line)
+        {
+            Vector3 world = line.Aloft.position;
+            if (ship.Sails == null || !ship.Sails.TryGetFlatSail(line.SailIndex, out var mast, out int s))
+                return world;
+            float angle = mast.GetSheetAngle(s);
+            if (Mathf.Abs(angle) < 0.01f)
+                return world;
+            var sail = mast.Sails[s];
+            Vector3 pivot = (sail.topLeftLocal + sail.topRightLocal) * 0.5f;
+            Vector3 local = ship.transform.InverseTransformPoint(world);
+            local = pivot + Quaternion.AngleAxis(angle, Vector3.up) * (local - pivot);
+            return ship.transform.TransformPoint(local);
+        }
+
+        private static float YardArm(NetworkShip ship, RigLine line)
+        {
+            if (line.Aloft == null || ship.Sails == null || !ship.Sails.TryGetFlatSail(line.SailIndex, out var mast, out int s))
+                return 3f;
+            var sail = mast.Sails[s];
+            Vector3 pivot = (sail.topLeftLocal + sail.topRightLocal) * 0.5f;
+            Vector3 d = ship.transform.InverseTransformPoint(line.Aloft.position) - pivot;
+            d.y = 0f;
+            return Mathf.Max(0.5f, d.magnitude);
+        }
         public static void Forget(NetworkShip ship)
         {
             var dead = new List<RigLine>();
@@ -97,19 +191,24 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
         }
 
         // Rope between two points with a catenary-ish sag from its slack (m); returns next index.
-        private static int WriteSag(Vector3 from, Vector3 to, float slack, int start, float hum = 0f, float phase = 0f)
+        // sway: sideways swing (m) at mid-span; hum: fast shiver (m) of a strained rope.
+        private static int WriteSag(Vector3 from, Vector3 to, float slack, int start, float sway = 0f, float hum = 0f, float phase = 0f)
         {
             float len = Vector3.Distance(from, to);
             float drop = Mathf.Min(Mathf.Sqrt(Mathf.Max(0f, slack) * Mathf.Max(0.01f, len)) * 0.6f, 4f);
             Vector3 along = len > 1e-4f ? (to - from) / len : Vector3.up;
             Vector3 side = Vector3.Cross(along, Vector3.up);
             side = side.sqrMagnitude > 1e-4f ? side.normalized : Vector3.right;
-            float shiver = hum * Mathf.Sin(phase);
+            // Gravity hangs the belly straight down; for a near-vertical span (block → aloft) the
+            // belly bows sideways instead.
+            Vector3 down = Vector3.ProjectOnPlane(Vector3.down, along);
+            down = down.sqrMagnitude > 0.04f ? down.normalized : side;
             for (int s = 0; s <= Segments; s++)
             {
                 float t = s / (float)Segments;
                 float belly = 4f * t * (1f - t);
-                Vector3 p = Vector3.Lerp(from, to, t) + Vector3.down * (drop * belly) + side * (shiver * belly);
+                float shiver = hum * Mathf.Sin(phase + t * 9.4f); // standing wave along the rope
+                Vector3 p = Vector3.Lerp(from, to, t) + down * (drop * belly) + side * ((sway + shiver) * belly);
                 Points[start + s] = p;
             }
             return start + Segments + 1;

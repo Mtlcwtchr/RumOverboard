@@ -10,7 +10,7 @@ namespace RumOverboard.Gameplay.Ocean
 
     public class OceanCurrentSystem : MonoBehaviour
     {
-        [SerializeField] private Vector3 globalCurrent = new Vector3(0.3f, 0f, 0.1f);
+        [SerializeField] private Vector3 globalCurrent = new Vector3(0.08f, 0f, 0.03f);
         [SerializeField] private bool autoDiscoverZones = true;
 
         private readonly List<IOceanCurrentZone> _zones = new List<IOceanCurrentZone>(16);

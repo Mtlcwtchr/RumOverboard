@@ -25,8 +25,8 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] [Range(-180f, 180f)] private float runtimeCurrentDirectionOffsetDegrees;
 
         [Header("Wind/current coupling")]
-        [SerializeField] [Range(0f, 0.5f)] private float windToCurrentFactor = 0.06f;
-        [SerializeField] [Min(0f)] private float maxWindDrivenCurrent = 2.5f;
+        [SerializeField] [Range(0f, 0.5f)] private float windToCurrentFactor = 0.012f;
+        [SerializeField] [Min(0f)] private float maxWindDrivenCurrent = 0.35f;
 
         // Distinct jitter index for the synthesized swell wave (kept out of the authored-wave index range).
         // Public so the GPU path (OceanSurfaceRenderer) bakes the swell with the identical jitter.

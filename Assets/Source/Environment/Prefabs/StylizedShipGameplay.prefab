@@ -2631,7 +2631,7 @@ MonoBehaviour:
   surfaceNormalInfluence: 0.35
   maxStabilityTorque: 60
   inversionRecoveryTorque: 45
-  windHullForceCoefficient: 120
+  windHullForceCoefficient: 50
   windLongitudinalFactor: 0.35
   windLateralFactor: 1
   maxWindForce: 4500

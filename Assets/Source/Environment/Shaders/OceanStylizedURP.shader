@@ -350,7 +350,9 @@ Shader "Source/Gameplay/Ocean/StylizedURP"
                 float2 screenUV = i.screenPos.xy / max(0.0001, i.screenPos.w);
                 float rawSceneDepth = SampleSceneDepth(screenUV);
                 float sceneEyeDepth = LinearEyeDepth(rawSceneDepth, _ZBufferParams);
-                float waterEyeDepth = LinearEyeDepth(i.positionCS.z / max(0.0001, i.positionCS.w), _ZBufferParams);
+                // SV_POSITION.z is already the post-divide depth in the fragment stage; clip w (carried in
+                // screenPos.w) is the water's eye depth for a perspective camera.
+                float waterEyeDepth = i.screenPos.w;
                 float depthDiff = max(0, sceneEyeDepth - waterEyeDepth);
 
                 float shallow01 = saturate(depthDiff / max(0.001, _ShallowDepthMax));

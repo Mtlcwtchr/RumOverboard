@@ -58,6 +58,16 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private float lateralDrag = 12f;
         [SerializeField] private float angularDrag = 2.2f;
         [SerializeField] private float currentRelativeDrag = 2.5f;
+        [Tooltip("Extra planar resistance through the current at low speed (1/s). Zero disables it.")]
+        [Min(0f)] [SerializeField] private float lowSpeedDragRate;
+        [Tooltip("Extra low-speed resistance fades to zero at this forward speed (m/s).")]
+        [Min(0.1f)] [SerializeField] private float lowSpeedDragFadeSpeed = 1.5f;
+
+        [Header("Keel (lateral resistance under way)")]
+        [Tooltip("Sideways damping through the water at rest, 1/s (mass-independent). 0 = leave drift to the per-point drag.")]
+        [Min(0f)] [SerializeField] private float keelBaseRate;
+        [Tooltip("Extra sideways damping per m/s of headway, 1/s per m/s: keel lift. Lets the ship sail to windward instead of sliding to leeward.")]
+        [Min(0f)] [SerializeField] private float keelRatePerHeadway = 0.3f;
 
         [Header("Auto buoyancy from mass (realistic float)")]
         [Tooltip("Scale buoyancy (and the linear damping + per-point force cap) to the Rigidbody mass, " +
@@ -80,7 +90,7 @@ namespace RumOverboard.Gameplay.Ocean
         [SerializeField] private float inversionRecoveryTorque = 45f;
 
         [Header("Wind coupling")]
-        [SerializeField] private float windHullForceCoefficient = 120f;
+        [SerializeField] private float windHullForceCoefficient = 50f;
         [SerializeField] private float windLongitudinalFactor = 0.35f;
         [SerializeField] private float windLateralFactor = 1f;
         [SerializeField] private float maxWindForce = 4500f;
@@ -129,6 +139,7 @@ namespace RumOverboard.Gameplay.Ocean
         private Vector3 _lastCenterOfMass;
         private int _lastSubmergedPoints;
         private Vector3 _lastWindForce;
+        private Vector3 _lastKeelForce;
         private Vector3 _lastWindApplicationPoint;
         private Vector3 _lastWindVelocity;
         private float _nextWindLookupTime;
@@ -205,6 +216,18 @@ namespace RumOverboard.Gameplay.Ocean
             set => currentRelativeDrag = Mathf.Max(0f, value);
         }
 
+        public float KeelBaseRate
+        {
+            get => keelBaseRate;
+            set => keelBaseRate = Mathf.Max(0f, value);
+        }
+
+        public float KeelRatePerHeadway
+        {
+            get => keelRatePerHeadway;
+            set => keelRatePerHeadway = Mathf.Max(0f, value);
+        }
+
         public float RollStability
         {
             get => rollStability;
@@ -244,6 +267,8 @@ namespace RumOverboard.Gameplay.Ocean
         public int LastSubmergedPoints => _lastSubmergedPoints;
         public Vector3 LastResultantForce => _lastResultantForce;
         public Vector3 LastResultantTorque => _lastResultantTorque;
+        public Vector3 LastWindForce => _lastWindForce;
+        public Vector3 LastKeelForce => _lastKeelForce;
         public Vector3 LastAverageSurfaceNormal => _lastAverageSurfaceNormal;
 
         public int PointCount => points != null ? points.Length : 0;
@@ -305,6 +330,10 @@ namespace RumOverboard.Gameplay.Ocean
             if (lateralDrag < 0f) lateralDrag = 0f;
             if (angularDrag < 0f) angularDrag = 0f;
             if (currentRelativeDrag < 0f) currentRelativeDrag = 0f;
+            lowSpeedDragRate = Mathf.Max(0f, lowSpeedDragRate);
+            lowSpeedDragFadeSpeed = Mathf.Max(0.1f, lowSpeedDragFadeSpeed);
+            if (keelBaseRate < 0f) keelBaseRate = 0f;
+            if (keelRatePerHeadway < 0f) keelRatePerHeadway = 0f;
             if (rollStability < 0f) rollStability = 0f;
             if (pitchStability < 0f) pitchStability = 0f;
             if (rollDamping < 0f) rollDamping = 0f;
@@ -471,6 +500,20 @@ namespace RumOverboard.Gameplay.Ocean
                 ? (averageNormalAccum / averageNormalWeight).normalized
                 : Vector3.up;
 
+            ApplyKeelForce(simTime, dt, dragMul);
+            if (lowSpeedDragRate > 0f && _lastSubmergedPoints > 0)
+            {
+                // Use current velocity here: oscillating wave orbital velocities must not carry
+                // a resting hull along as if they were a steady current.
+                Vector3 throughCurrent = Vector3.ProjectOnPlane(rb.linearVelocity -
+                    oceanField.Sample(rb.worldCenterOfMass, simTime).currentVelocity, Vector3.up);
+                float headway = Mathf.Abs(Vector3.Dot(throughCurrent, transform.forward));
+                float fade = Mathf.Clamp01(1f - headway / lowSpeedDragFadeSpeed);
+                Vector3 lowSpeedForce = -throughCurrent * (rb.mass * lowSpeedDragRate * fade * dragMul);
+                rb.AddForce(lowSpeedForce, ForceMode.Force);
+                _lastResultantForce += lowSpeedForce;
+            }
+
             Vector3 stabilizationTorque = ComputeStabilityTorque(dragMul, _lastAverageSurfaceNormal);
             if (stabilizationTorque.sqrMagnitude > 0.000001f)
             {
@@ -491,6 +534,24 @@ namespace RumOverboard.Gameplay.Ocean
             _angularAcceleration = (rb.angularVelocity - _previousAngularVelocity) / dt;
             _previousVelocity = rb.linearVelocity;
             _previousAngularVelocity = rb.angularVelocity;
+        }
+
+        private void ApplyKeelForce(float simTime, float dt, float dragMul)
+        {
+            _lastKeelForce = Vector3.zero;
+            if (_lastSubmergedPoints == 0 || (keelBaseRate <= 0f && keelRatePerHeadway <= 0f))
+                return;
+
+            Vector3 com = rb.worldCenterOfMass;
+            Vector3 relativeVelocity = rb.linearVelocity - oceanField.Sample(com, simTime).waterVelocity;
+            Vector3 accel = ShipKeelSolver.Solve(relativeVelocity, transform.forward, transform.right,
+                keelBaseRate, keelRatePerHeadway, (float)_lastSubmergedPoints / points.Length, dragMul, dt);
+            if (accel.sqrMagnitude < 1e-8f)
+                return;
+
+            _lastKeelForce = accel * rb.mass;
+            rb.AddForce(_lastKeelForce, ForceMode.Force);
+            _lastResultantForce += _lastKeelForce;
         }
 
         private void ApplyWindForce(float simulationTime)

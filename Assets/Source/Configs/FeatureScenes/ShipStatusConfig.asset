@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b888f68b44c9cf045a5499e6c3e6fa1b, type: 3}
+  m_Name: ShipStatusConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.Features.ShipStatus.ShipStatusConfig
+  Visible: 1
+  ToggleKey: 3
+  Scale: 1
+  Opacity: 0.9
+  Offset: {x: -20, y: -80}
+  NorthUp: 1
+  ShowApparentWind: 1
+  ShowSails: 1
+  ShowLines: 1
+  SpeedSmoothing: 0.6
+  SlackBelow: 0.3

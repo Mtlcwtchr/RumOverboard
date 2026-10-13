@@ -2,13 +2,27 @@ using UnityEngine;
 
 namespace RumOverboard.Gameplay.Ocean
 {
+    /// <summary>Procedural sea floor (e.g. the generated world): world-space floor height at XZ.</summary>
+    public interface IOceanFloorSampler
+    {
+        float SampleFloorHeight(Vector3 worldPos);
+    }
+
     public class OceanDepthProvider : MonoBehaviour
     {
         [SerializeField] private OceanSimulationConfig config;
         [SerializeField] private Terrain terrain;
 
+        private IOceanFloorSampler _floorSampler;
+
+        /// <summary>Runtime floor source; takes precedence over the terrain / depth profile.</summary>
+        public void SetFloorSampler(IOceanFloorSampler sampler) => _floorSampler = sampler;
+
         public float EvaluateDepthMeters(Vector3 worldPos, float surfaceHeight)
         {
+            if (_floorSampler != null)
+                return Mathf.Max(0f, surfaceHeight - _floorSampler.SampleFloorHeight(worldPos));
+
             if (terrain != null)
             {
                 float floor = terrain.SampleHeight(worldPos) + terrain.transform.position.y;

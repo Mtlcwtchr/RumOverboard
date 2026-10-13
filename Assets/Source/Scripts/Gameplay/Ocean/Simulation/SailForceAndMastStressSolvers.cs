@@ -61,6 +61,35 @@ namespace RumOverboard.Gameplay.Ocean.Simulation
         }
     }
 
+    /// <summary>
+    /// Lift / drag polar of a cloth square sail vs angle of attack (deg, between the apparent wind
+    /// and the sail plane): lift peaks at <see cref="StallAngle"/> and fades to 0 when the sail is
+    /// broadside (pure drag); drag = profile + pressure (∝ sin²) + induced (∝ Cl², low aspect ratio).
+    /// Best L/D ≈ 3 at ~10°, so a ship braced sharp drives from ~35–40° apparent wind.
+    /// </summary>
+    public static class SailPolar
+    {
+        public const float MaxLift = 1f;
+        public const float StallAngle = 25f;
+        public const float ProfileDrag = 0.1f;
+        public const float BroadsideDrag = 1.2f;
+        public const float InducedDrag = 0.2f;
+
+        public static float Lift(float aoaDeg)
+        {
+            float a = Mathf.Clamp(aoaDeg, 0f, 90f);
+            return a <= StallAngle
+                ? MaxLift * Mathf.Sin(a / StallAngle * 90f * Mathf.Deg2Rad)
+                : MaxLift * Mathf.Cos((a - StallAngle) / (90f - StallAngle) * 90f * Mathf.Deg2Rad);
+        }
+
+        public static float Drag(float aoaDeg, float liftCoeff)
+        {
+            float s = Mathf.Sin(Mathf.Clamp(aoaDeg, 0f, 90f) * Mathf.Deg2Rad);
+            return ProfileDrag + BroadsideDrag * s * s + InducedDrag * liftCoeff * liftCoeff;
+        }
+    }
+
     public static class SailAerodynamicsSolver
     {
         public static SailAerodynamicsResult Solve(in SailAerodynamicsInput input)
@@ -70,24 +99,35 @@ namespace RumOverboard.Gameplay.Ocean.Simulation
 
             Vector3 appDir = input.ApparentWind.normalized;
             float speed = input.ApparentWind.magnitude;
-            float attack = Mathf.Clamp01(Mathf.Abs(Vector3.Dot(-appDir, input.SailNormal)));
             float dynamicPressure = 0.5f * Mathf.Max(0f, input.AirDensity) * speed * speed;
 
-            float liftCoeff = (attack * (1f - attack)) * 2.4f * Mathf.Clamp(input.LiftFactor, 0f, 2f);
-            float dragCoeff = (0.15f + attack * 1.2f) * Mathf.Clamp(input.DragFactor, 0f, 2f);
+            // The cloth normal's sign is just mesh winding; the wind always fills the windward face,
+            // so orient it to leeward — otherwise lift points to windward/aft and nothing drives upwind.
+            Vector3 leeNormal = Vector3.Dot(appDir, input.SailNormal) >= 0f ? input.SailNormal : -input.SailNormal;
+            float sinAoA = Mathf.Clamp01(Vector3.Dot(appDir, leeNormal));
+            float aoa = Mathf.Asin(sinAoA) * Mathf.Rad2Deg;
 
-            Vector3 dragDir = appDir;
-            Vector3 liftDir = Vector3.Cross(appDir, Vector3.Cross(input.SailNormal, appDir));
-            if (liftDir.sqrMagnitude > 0.0001f)
-                liftDir.Normalize();
+            float liftCoeff = SailPolar.Lift(aoa) * Mathf.Clamp(input.LiftFactor, 0f, 2f);
+            float dragCoeff = SailPolar.Drag(aoa, liftCoeff) * Mathf.Clamp(input.DragFactor, 0f, 2f);
 
-            Vector3 rigForce = (dragDir * dragCoeff + liftDir * (liftCoeff * Mathf.Clamp01(input.SideForceFactor)))
+            Vector3 liftDir = leeNormal - appDir * sinAoA; // ⟂ wind, toward leeward
+            liftDir = liftDir.sqrMagnitude > 1e-6f ? liftDir.normalized : Vector3.zero;
+
+            Vector3 rigForce = (appDir * dragCoeff + liftDir * liftCoeff)
                                * (dynamicPressure * input.EffectiveArea * Mathf.Max(0f, input.SailForceScale));
 
             Vector3 horizontal = Vector3.ProjectOnPlane(rigForce, Vector3.up);
             rigForce = horizontal + Vector3.up * (rigForce.y * Mathf.Clamp01(input.VerticalForceFactor));
 
+            // Only part of the athwartships push reaches the hull (arcade keel: less leeway and heel).
             Vector3 driveForce = rigForce;
+            Vector3 shipRight = Vector3.Cross(Vector3.up, input.ShipForward);
+            if (shipRight.sqrMagnitude > 1e-6f)
+            {
+                shipRight.Normalize();
+                driveForce -= shipRight * (Vector3.Dot(driveForce, shipRight) * (1f - Mathf.Clamp01(input.SideForceFactor)));
+            }
+
             float forwardComponent = Vector3.Dot(driveForce, input.ShipForward);
             if (forwardComponent < 0f)
             {
