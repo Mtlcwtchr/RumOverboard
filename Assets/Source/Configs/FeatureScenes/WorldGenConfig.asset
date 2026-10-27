@@ -1,0 +1,114 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e59162f0d72499e408690982ab6197b6, type: 3}
+  m_Name: WorldGenConfig
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.World.WorldGenConfig
+  Seed: 0
+  ClusterCount: 6
+  DifficultyCurve:
+    serializedVersion: 2
+    m_Curve:
+    - serializedVersion: 3
+      time: 0
+      value: 0
+      inSlope: 0
+      outSlope: 1
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    - serializedVersion: 3
+      time: 1
+      value: 1
+      inSlope: 1
+      outSlope: 0
+      tangentMode: 0
+      weightedMode: 0
+      inWeight: 0
+      outWeight: 0
+    m_PreInfinity: 2
+    m_PostInfinity: 2
+    m_RotationOrder: 4
+  RouteAngleToWind: 80
+  LegTurnMax: 35
+  RouteDriftMax: 65
+  LegLengthEasy: 650
+  LegLengthHard: 1000
+  LegLengthJitter: 0.15
+  IslandRadiusMin: 85
+  IslandRadiusMax: 130
+  IslandPeakMin: 18
+  IslandPeakMax: 40
+  PierLength: 38
+  PierWidth: 4
+  PierDeckHeight: 1.45
+  HarborBasinDepth: 7
+  HarborBasinRadius: 42
+  ApproachDistance: 150
+  HarborReachRadius: 75
+  BeaconHeight: 16
+  ChannelHalfWidthEasy: 110
+  ChannelHalfWidthHard: 26
+  ChannelWiggleEasy: 40
+  ChannelWiggleHard: 170
+  ChannelBendsEasy: 1
+  ChannelBendsHard: 4
+  ChannelMinDepth: 5
+  ClusterHalfWidth: 340
+  SeaFloorDepth: 45
+  IslandsEasy: 2
+  IslandsHard: 4
+  RocksEasy: 2
+  RocksHard: 16
+  ReefsEasy: 0
+  ReefsHard: 9
+  NarrowsFrom: 0.3
+  SecondNarrowsFrom: 0.75
+  ApproachReefFrom: 0.2
+  ApproachCliffsFrom: 0.55
+  ReefTopDepthMin: 0.35
+  ReefTopDepthMax: 0.9
+  ChunkSize: 128
+  CellSize: 2.5
+  ColorMapResolution: 64
+  TerrainMaterial: {fileID: 2100000, guid: f21f19ea6f233c4429b6d24cc8654446, type: 2}
+  WoodMaterial: {fileID: 2100000, guid: ac73b62d7b17b3c45966ecfdc8cd4bbd, type: 2}
+  StoneMaterial: {fileID: 2100000, guid: 489dc368a21798b4d9b7abe4e674318f, type: 2}
+  ChartMaterial: {fileID: 2100000, guid: 6d43d2efc29424940aea1105ccac34a9, type: 2}
+  RopeMaterial: {fileID: 2100000, guid: d7c15ba142a477f4b9c21d8199d971a5, type: 2}
+  LampMaterial: {fileID: 2100000, guid: 628938dc5cc067840a26003d3d1c2a24, type: 2}
+  SandColor: {r: 0.86, g: 0.78, b: 0.56, a: 1}
+  GrassColor: {r: 0.33, g: 0.52, b: 0.25, a: 1}
+  ForestColor: {r: 0.2, g: 0.36, b: 0.18, a: 1}
+  RockColor: {r: 0.47, g: 0.44, b: 0.4, a: 1}
+  CliffColor: {r: 0.36, g: 0.33, b: 0.31, a: 1}
+  ReefColor: {r: 0.85, g: 0.62, b: 0.52, a: 1}
+  SeabedColor: {r: 0.55, g: 0.52, b: 0.4, a: 1}
+  MapResolution: 1280
+  MapMargin: 220
+  MapGridStep: 250
+  MapContourStep: 10
+  FogEdge: 70
+  CheckpointRevealRadius: 260
+  SeaStates:
+  - {fileID: 11400000, guid: ebe25a2fe0bf047bab3de011e58ae917, type: 2}
+  - {fileID: 11400000, guid: 5ce037e17ab914cf29e1acef20915c1e, type: 2}
+  - {fileID: 11400000, guid: 043d78fc902a146b18a26516b20e4ea0, type: 2}
+  SeaStateTransition: 25
+  WindScaleEasy: 1
+  WindScaleHard: 1.5
+  MoorAtStart: 1
+  MooringStiffness: 0.8
+  MooringDamping: 1.2
+  MooringMaxAccel: 3
+  MooringSlack: 0.4
+  MooringReach: 16

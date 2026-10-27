@@ -48,8 +48,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 // replicates as SceneRef) match between the player host and the editor client.
                 scenes = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Select(
                     System.Linq.Enumerable.Where(EditorBuildSettings.scenes, s => s.enabled), s => s.path)),
-                locationPathName = System.IO.Path.Combine(dir, "SandboxSmoke.app"),
-                target = BuildTarget.StandaloneOSX,
+                locationPathName = System.IO.Path.Combine(dir, Application.platform == RuntimePlatform.WindowsEditor ? "SandboxSmoke.exe" : "SandboxSmoke.app"),
+                target = Application.platform == RuntimePlatform.WindowsEditor ? BuildTarget.StandaloneWindows64 : BuildTarget.StandaloneOSX,
                 options = BuildOptions.Development,
             };
             BuildReport report = BuildPipeline.BuildPlayer(options);

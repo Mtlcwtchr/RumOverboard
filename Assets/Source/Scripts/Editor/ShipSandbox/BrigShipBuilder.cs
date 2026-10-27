@@ -30,9 +30,16 @@ namespace RumOverboard.EditorTools.ShipSandbox
         private const string BoxMeshPath = "Assets/Source/Environment/Meshes/Brig/UnitBox.asset";
         private const string CylinderMeshPath = "Assets/Source/Environment/Meshes/Brig/UnitCylinder.asset";
 
-        // Hull frame (must match ProceduralBrigShipMeshBuilder).
-        private const float SternZ = -9.4f;
-        private const float BowZ = 10.9f;
+        /// <summary>
+        /// Ship scale vs the procedural brig meshes (hull + rig). The shared meshes are left untouched
+        /// and scaled on their visual transforms; human-scale parts (bulwark height, steps, ratline
+        /// spacing, wheel, guns, hatch) keep their real size.
+        /// </summary>
+        public const float S = 1.5f;
+
+        // Hull frame (ProceduralBrigShipMeshBuilder shape x S).
+        private const float SternZ = -9.4f * S;
+        private const float BowZ = 10.9f * S;
         private const float DeckInset = 0.8f;   // hull top edge = 0.8 × half-beam (tumblehome)
         private const float BulwarkHeight = 0.95f;
         private const float BulwarkThickness = 0.14f;
@@ -48,28 +55,28 @@ namespace RumOverboard.EditorTools.ShipSandbox
 
         private static readonly MastSpec[] Masts =
         {
-            new MastSpec { Module = "ForeMastModule", Prefix = "Fore", Z = 2.0f, TopY = 7.9f, LowerRadius = 0.21f },
-            new MastSpec { Module = "MainMastModule", Prefix = "Main", Z = -3.9f, TopY = 8.3f, LowerRadius = 0.23f },
+            new MastSpec { Module = "ForeMastModule", Prefix = "Fore", Z = 2.0f * S, TopY = 7.9f * S, LowerRadius = 0.21f * S },
+            new MastSpec { Module = "MainMastModule", Prefix = "Main", Z = -3.9f * S, TopY = 8.3f * S, LowerRadius = 0.23f * S },
         };
 
         private static Mesh _box, _cylinder;
         private static Material _wood, _darkWood, _hull, _rigging, _metal, _sail;
 
-        // ---- Hull curves (copied from ProceduralBrigShipMeshBuilder so colliders match the mesh) ----
+        // ---- Hull curves (ProceduralBrigShipMeshBuilder x S, so colliders match the scaled mesh) ----
         public static float HalfBeam(float t)
         {
             float centered = Mathf.Clamp01(1f - Mathf.Pow((t - 0.48f) / 0.52f, 2f));
             float beam = 0.68f + 1.95f * centered;
             float sternTaper = Mathf.Lerp(0.58f, 1f, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.24f, t)));
             float bowTaper = Mathf.Lerp(1f, 0.42f, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.74f, 1f, t)));
-            return beam * sternTaper * bowTaper;
+            return beam * sternTaper * bowTaper * S;
         }
 
         public static float Sheer(float t)
         {
             float sternRise = Mathf.Lerp(0.55f, 0f, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.32f, t)));
             float bowRise = Mathf.Lerp(0f, 0.66f, Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.68f, 1f, t)));
-            return 1.05f + sternRise + bowRise;
+            return (1.05f + sternRise + bowRise) * S;
         }
 
         public static float T(float z) => Mathf.InverseLerp(SternZ, BowZ, z);
@@ -83,7 +90,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
         }
 
         /// <summary>Walkable deck height (centre line, incl. camber) at z.</summary>
-        public static float DeckY(float z) => Sheer(T(z)) - 0.03f + 0.08f;
+        public static float DeckY(float z) => Sheer(T(z)) + (0.08f - 0.03f) * S;
 
         // =========================================================================================
         public static void BuildInto(GameObject root)
@@ -106,7 +113,11 @@ namespace RumOverboard.EditorTools.ShipSandbox
             ConfigureBuoyancy(root);
 
             var sails = root.GetComponent<ShipSailsAggregator>();
-            if (sails != null) sails.RefreshMasts();
+            if (sails != null)
+            {
+                sails.MaxForcePerSail = 5000f * S * S;
+                sails.RefreshMasts();
+            }
             Debug.Log($"[BrigShipBuilder] Built brig from parts: hull, {mastModules.Count} masts, helm.");
         }
 
@@ -140,10 +151,10 @@ namespace RumOverboard.EditorTools.ShipSandbox
             Transform visual = Child(module, "Visual");
             Transform colliders = Child(module, "Colliders");
 
-            MeshPart(visual, "Hull", AssetDatabase.LoadAssetAtPath<Mesh>(HullMeshPath), _hull, Vector3.zero, Vector3.one, Quaternion.identity);
+            MeshPart(visual, "Hull", AssetDatabase.LoadAssetAtPath<Mesh>(HullMeshPath), _hull, Vector3.zero, Vector3.one * S, Quaternion.identity);
             // The procedural deck is 0.93 × beam; scale it in to sit inside the hull's top edge.
             MeshPart(visual, "Deck", AssetDatabase.LoadAssetAtPath<Mesh>(DeckMeshPath), _wood, Vector3.zero,
-                new Vector3(DeckInset / 0.93f * 1.01f, 1f, 1f), Quaternion.identity);
+                new Vector3(DeckInset / 0.93f * 1.01f * S, S, S), Quaternion.identity);
 
             // --- Deck collider: segments following sheer (pitch) and beam ------------------------
             const float seg = 0.7f;
@@ -194,23 +205,23 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 new Vector3(2f * EdgeX(sternZ) + 0.12f, BulwarkHeight + 0.7f, BulwarkThickness + 0.04f), Quaternion.identity).AddComponent<BoxCollider>();
 
             // --- Hull volume below deck (swimmers, debris) — tapered boxes -----------------------
-            foreach ((float z0, float z1) in new[] { (-8.6f, -4f), (-4f, 4f), (4f, 9.6f) })
+            foreach ((float z0, float z1) in new[] { (-8.6f * S, -4f * S), (-4f * S, 4f * S), (4f * S, 9.6f * S) })
             {
                 float zm = (z0 + z1) * 0.5f;
                 var go = new GameObject($"HullVolume_{zm:F0}");
                 go.transform.SetParent(colliders, false);
                 float top = Mathf.Min(DeckY(z0), DeckY(z1)) - 0.35f;
-                go.transform.localPosition = new Vector3(0f, (top - 1.6f) * 0.5f, zm);
+                go.transform.localPosition = new Vector3(0f, (top - 1.6f * S) * 0.5f, zm);
                 var box = go.AddComponent<BoxCollider>();
-                box.size = new Vector3(2f * Mathf.Min(EdgeX(z0), EdgeX(z1)), top + 1.6f, z1 - z0);
+                box.size = new Vector3(2f * Mathf.Min(EdgeX(z0), EdgeX(z1)), top + 1.6f * S, z1 - z0);
             }
 
             // --- Fittings ------------------------------------------------------------------------
-            Line(visual, "Bowsprit", _wood, new Vector3(0f, DeckY(9.8f) + 0.35f, 9.8f), new Vector3(0f, 3.4f, 14.6f), 0.15f);
-            MeshPart(visual, "Rudder", _hull, new Vector3(0f, -0.9f, -9.65f), new Vector3(0.18f, 2.2f, 0.7f), Quaternion.Euler(6f, 0f, 0f), _box);
-            MeshPart(colliders, "Hatch", _darkWood, new Vector3(0f, DeckY(-0.8f) + 0.1f, -0.8f), new Vector3(1.3f, 0.2f, 1.3f),
+            Line(visual, "Bowsprit", _wood, new Vector3(0f, DeckY(9.8f * S) + 0.35f * S, 9.8f * S), new Vector3(0f, 3.4f, 14.6f) * S, 0.15f * S);
+            MeshPart(visual, "Rudder", _hull, new Vector3(0f, -0.9f, -9.65f) * S, new Vector3(0.18f, 2.2f, 0.7f) * S, Quaternion.Euler(6f, 0f, 0f), _box);
+            MeshPart(colliders, "Hatch", _darkWood, new Vector3(0f, DeckY(-0.8f * S) + 0.1f, -0.8f * S), new Vector3(1.3f, 0.2f, 1.3f),
                 Quaternion.identity, _box).AddComponent<BoxCollider>();
-            foreach (float z in new[] { -1.8f, 0.6f, 4.4f })
+            foreach (float z in new[] { -1.8f * S, 0.6f * S, 4.4f * S })
                 foreach (float side in new[] { -1f, 1f })
                 {
                     float x = side * (EdgeX(z) - 0.55f);
@@ -236,24 +247,24 @@ namespace RumOverboard.EditorTools.ShipSandbox
 
             float deck = DeckY(spec.Z);
             float z = spec.Z;
-            float lowerTop = spec.TopY + 0.5f;
-            float topmastTop = spec.TopY + 4.6f;
+            float lowerTop = spec.TopY + 0.5f * S;
+            float topmastTop = spec.TopY + 4.6f * S;
 
             // Spars (visual).
             Line(visual, "LowerMast", _wood, new Vector3(0f, deck - 0.2f, z), new Vector3(0f, lowerTop, z), spec.LowerRadius * 2f);
-            Line(visual, "TopMast", _wood, new Vector3(0f, spec.TopY - 0.3f, z), new Vector3(0f, topmastTop, z), 0.26f);
-            Line(visual, "TopGallantPole", _wood, new Vector3(0f, topmastTop - 0.4f, z), new Vector3(0f, topmastTop + 1.6f, z), 0.16f);
-            float courseYardY = spec.TopY - 0.7f;
-            float topsailYardY = topmastTop - 0.5f;
-            Line(visual, "CourseYard", _wood, new Vector3(-3.2f, courseYardY, z + 0.25f), new Vector3(3.2f, courseYardY, z + 0.25f), 0.16f);
-            Line(visual, "TopsailYard", _wood, new Vector3(-2.6f, topsailYardY, z + 0.18f), new Vector3(2.6f, topsailYardY, z + 0.18f), 0.13f);
+            Line(visual, "TopMast", _wood, new Vector3(0f, spec.TopY - 0.3f * S, z), new Vector3(0f, topmastTop, z), 0.26f * S);
+            Line(visual, "TopGallantPole", _wood, new Vector3(0f, topmastTop - 0.4f * S, z), new Vector3(0f, topmastTop + 1.6f * S, z), 0.16f * S);
+            float courseYardY = spec.TopY - 0.7f * S;
+            float topsailYardY = topmastTop - 0.5f * S;
+            var courseYard = Line(visual, "CourseYard", _wood, new Vector3(-3.2f * S, courseYardY, z + 0.25f * S), new Vector3(3.2f * S, courseYardY, z + 0.25f * S), 0.16f * S);
+            var topsailYard = Line(visual, "TopsailYard", _wood, new Vector3(-2.6f * S, topsailYardY, z + 0.18f * S), new Vector3(2.6f * S, topsailYardY, z + 0.18f * S), 0.13f * S);
 
             // Top (platform) — walkable, the exit of the climbs.
-            var top = MeshPart(colliders, "Top", _darkWood, new Vector3(0f, spec.TopY - 0.06f, z), new Vector3(2.0f, 0.12f, 2.4f), Quaternion.identity, _box);
+            var top = MeshPart(colliders, "Top", _darkWood, new Vector3(0f, spec.TopY - 0.06f, z), new Vector3(2.0f * S, 0.12f, 2.4f * S), Quaternion.identity, _box);
             top.AddComponent<BoxCollider>();
             foreach (float side in new[] { -1f, 1f })
-                MeshPart(visual, $"TopRail_{side}", _darkWood, new Vector3(side * 1.0f, spec.TopY + 0.35f, z),
-                    new Vector3(0.05f, 0.05f, 2.4f), Quaternion.identity, _box);
+                MeshPart(visual, $"TopRail_{side}", _darkWood, new Vector3(side * 1.0f * S, spec.TopY + 0.35f, z),
+                    new Vector3(0.05f, 0.05f, 2.4f * S), Quaternion.identity, _box);
 
             // Trunk collider (view ray / climb rail detection).
             var trunkGo = new GameObject("Trunk");
@@ -269,10 +280,10 @@ namespace RumOverboard.EditorTools.ShipSandbox
             Anchor(anchors, "MastTop", new Vector3(0f, topmastTop, z));
             var sails = new List<ShipMast.SailPanel>
             {
-                Sail(anchors, $"{spec.Prefix}Course", z + 0.3f,
-                    new Vector2(3.0f, courseYardY - 0.1f), new Vector2(3.3f, deck + 2.4f), 8, 6),
-                Sail(anchors, $"{spec.Prefix}Topsail", z + 0.22f,
-                    new Vector2(2.45f, topsailYardY - 0.1f), new Vector2(2.9f, spec.TopY + 0.4f), 8, 6),
+                Sail(anchors, $"{spec.Prefix}Course", z + 0.3f * S,
+                    new Vector2(3.0f * S, courseYardY - 0.1f * S), new Vector2(3.3f * S, deck + 2.4f * S), 8, 6),
+                Sail(anchors, $"{spec.Prefix}Topsail", z + 0.22f * S,
+                    new Vector2(2.45f * S, topsailYardY - 0.1f * S), new Vector2(2.9f * S, spec.TopY + 0.4f * S), 8, 6),
             };
 
             // Shrouds + ratlines each side, climbable to the top.
@@ -292,11 +303,46 @@ namespace RumOverboard.EditorTools.ShipSandbox
             so.FindProperty("standalone").boolValue = false;
             if (_sail != null) so.FindProperty("sailMaterial").objectReferenceValue = _sail;
             so.FindProperty("drawDebugGizmos").boolValue = false;
+            so.FindProperty("maxForcePerSail").floatValue = 6000f * S * S;
             so.ApplyModifiedPropertiesWithoutUndo();
+
+            // Yards you can work from the top / the rigging: furl the sail onto the yard or cast it loose.
+            Transform furl = Child(module, "FurlZones");
+            bool fore = spec.Prefix == "Fore";
+            BuildFurlZone(furl, visual, shipMast, 0, fore ? "фок" : "грот", courseYard.transform,
+                new Vector3(0f, courseYardY, z + 0.25f * S), 3.2f * S, 3.0f * S);
+            BuildFurlZone(furl, visual, shipMast, 1, fore ? "фор-марсель" : "грот-марсель", topsailYard.transform,
+                new Vector3(0f, topsailYardY, z + 0.18f * S), 2.6f * S, 2.45f * S);
 
             var mastModule = module.gameObject.AddComponent<ShipMastModule>();
             mastModule.Configure(spec.Module, visual, new Transform[0], anchors, climb, null);
             return shipMast;
+        }
+
+        /// <summary>
+        /// Trigger capsule along a yard (static — only the visuals swing with the braces) + the furled
+        /// canvas roll under it (scaled by the furl, rotated with the yard by <see cref="YardFurlZone"/>).
+        /// </summary>
+        private static void BuildFurlZone(Transform parent, Transform visual, ShipMast mast, int sail, string label,
+            Transform yard, Vector3 centre, float yardHalfLength, float sailHalfWidth)
+        {
+            var go = new GameObject($"YardFurl_{yard.name}");
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = centre;
+            var capsule = go.AddComponent<CapsuleCollider>();
+            capsule.isTrigger = true;
+            capsule.direction = 0; // along the yard (ship X)
+            capsule.radius = 0.45f;
+            capsule.height = 2f * yardHalfLength + 0.9f;
+
+            var roll = MeshPart(visual, $"{yard.name}_FurledRoll", _cylinder, _sail != null ? _sail : _rigging,
+                centre + new Vector3(0f, -0.13f, 0.05f) * S, new Vector3(0.26f * S, sailHalfWidth, 0.26f * S),
+                Quaternion.FromToRotation(Vector3.up, Vector3.right));
+
+            var zone = go.AddComponent<RumOverboard.Gameplay.Ocean.Features.SailFurl.YardFurlZone>();
+            zone.Configure(mast, sail, label, yard, roll.transform);
+            zone.Prompt = $"Скрутить / раскрутить {label}";
+            zone.MaxDistance = 3.1f;
         }
 
         private static ShipMast.SailPanel Sail(Transform anchors, string name, float z, Vector2 topCorner, Vector2 bottomCorner, int w, int h)
@@ -333,11 +379,11 @@ namespace RumOverboard.EditorTools.ShipSandbox
             const int lines = 4;
             float chainY = Sheer(T(spec.Z)) + BulwarkHeight;      // on the cap rail
             float topY = spec.TopY - 0.15f;
-            Vector3 topCentre = new Vector3(side * 0.85f, topY, spec.Z);
+            Vector3 topCentre = new Vector3(side * 0.85f * S, topY, spec.Z);
             var bottoms = new List<Vector3>();
             for (int i = 0; i < lines; i++)
             {
-                float dz = -0.75f + i * 0.4f;
+                float dz = (-0.75f + i * 0.4f) * S;
                 Vector3 bottom = new Vector3(side * (EdgeX(spec.Z + dz) + 0.06f), chainY, spec.Z + dz);
                 bottoms.Add(bottom);
                 Line(visual, $"Shroud_{side}_{i}", _rigging, bottom, topCentre + new Vector3(0f, 0f, dz * 0.25f), 0.045f);
@@ -346,8 +392,8 @@ namespace RumOverboard.EditorTools.ShipSandbox
             for (float y = chainY + 0.45f; y < topY - 0.2f; y += 0.42f)
             {
                 float k = Mathf.InverseLerp(chainY, topY, y);
-                Vector3 a = Vector3.Lerp(bottoms[0], topCentre + new Vector3(0f, 0f, -0.75f * 0.25f), k);
-                Vector3 b = Vector3.Lerp(bottoms[lines - 1], topCentre + new Vector3(0f, 0f, 0.45f * 0.25f), k);
+                Vector3 a = Vector3.Lerp(bottoms[0], topCentre + new Vector3(0f, 0f, -0.75f * S * 0.25f), k);
+                Vector3 b = Vector3.Lerp(bottoms[lines - 1], topCentre + new Vector3(0f, 0f, 0.45f * S * 0.25f), k);
                 Line(visual, $"Ratline_{side}_{y:F1}", _rigging, a, b, 0.025f);
             }
 
@@ -362,7 +408,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
 
             var exit = new GameObject("TopExit").transform;
             exit.SetParent(go.transform, false);
-            exit.localPosition = new Vector3(side * 0.5f, spec.TopY + 0.02f, spec.Z);
+            exit.localPosition = new Vector3(side * 0.5f * S, spec.TopY + 0.02f, spec.Z);
 
             // Look-at zone: a thin slab in the shroud plane.
             var zone = new GameObject("LookZone");
@@ -371,7 +417,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
             zone.transform.localRotation = Quaternion.LookRotation(Vector3.forward, axis);
             var box = zone.AddComponent<BoxCollider>();
             box.isTrigger = true;
-            box.size = new Vector3(0.35f, Vector3.Distance(bottomMid, topCentre) + 0.4f, 1.4f);
+            box.size = new Vector3(0.35f, Vector3.Distance(bottomMid, topCentre) + 0.4f, 1.4f * S);
 
             var surface = go.AddComponent<ClimbSurface>();
             surface.Configure(gripBottom, gripTop, new Vector3(-side, 0f, 0f), 0.4f, 0.36f, exit, 0f);
@@ -385,7 +431,7 @@ namespace RumOverboard.EditorTools.ShipSandbox
         // =========================================================================================
         private static void BuildHelm(GameObject root)
         {
-            const float z = -7.1f;
+            const float z = -7.1f * S;
             float deck = DeckY(z);
             Transform module = Child(root.transform, "HelmModule");
             var stand = MeshPart(module, "WheelStand", _darkWood, new Vector3(0f, deck + 0.5f, z - 0.05f),
@@ -431,7 +477,9 @@ namespace RumOverboard.EditorTools.ShipSandbox
                 so.FindProperty("wheelSpinAxis").vector3Value = Vector3.up;
                 so.FindProperty("standAnchor").objectReferenceValue = anchor;
                 so.FindProperty("autoFlipStandToAft").boolValue = false;
-                so.FindProperty("rudderLocal").vector3Value = new Vector3(0f, -1.1f, -9.6f);
+                so.FindProperty("rudderLocal").vector3Value = new Vector3(0f, -1.1f, -9.6f) * S;
+                // Yaw inertia grows with mass x length^2 (S^4): scale the rudder's authority with it.
+                so.FindProperty("rudderYawCoefficient").floatValue = 9000f * S * S * S * S;
                 so.ApplyModifiedPropertiesWithoutUndo();
 
                 var station = zoneGo.AddComponent<HelmStation>();
@@ -449,11 +497,11 @@ namespace RumOverboard.EditorTools.ShipSandbox
         {
             var rb = root.GetComponent<Rigidbody>();
             if (rb == null) return;
-            rb.mass = 12000f;
+            rb.mass = 12000f * S * S; // sail area grows with S^2: same accelerations under canvas
             rb.linearDamping = 0.05f;
             rb.angularDamping = 0.3f;
             rb.automaticCenterOfMass = false;
-            rb.centerOfMass = new Vector3(0f, -0.7f, 0.2f);
+            rb.centerOfMass = new Vector3(0f, -0.7f, 0.2f) * S;
             rb.interpolation = RigidbodyInterpolation.None;
         }
 
@@ -462,8 +510,16 @@ namespace RumOverboard.EditorTools.ShipSandbox
             var buoyancy = root.GetComponent<ShipBuoyancyController>();
             if (buoyancy == null) return;
             var so = new SerializedObject(buoyancy);
+            // Resist wave-driven drift through the water without changing resistance under canvas.
+            so.FindProperty("lowSpeedDragRate").floatValue = 0.35f;
+            so.FindProperty("lowSpeedDragFadeSpeed").floatValue = 1.5f;
+            // Hull windage / per-point caps grow with the hull's side area (S^2).
+            so.FindProperty("windHullForceCoefficient").floatValue = 50f * S * S;
+            so.FindProperty("maxWindForce").floatValue = 4500f * S * S;
+            so.FindProperty("windApplicationOffset").vector3Value = new Vector3(0f, 3f * S, 0f);
+            so.FindProperty("maxForcePerPoint").floatValue = 9000f * S * S;
             SerializedProperty points = so.FindProperty("points");
-            float[] zs = { -6.8f, -2.8f, 1.6f, 6.2f };
+            float[] zs = { -6.8f * S, -2.8f * S, 1.6f * S, 6.2f * S };
             points.arraySize = zs.Length * 2;
             int k = 0;
             foreach (float z in zs)
@@ -472,12 +528,12 @@ namespace RumOverboard.EditorTools.ShipSandbox
                     SerializedProperty p = points.GetArrayElementAtIndex(k++);
                     p.FindPropertyRelative("name").stringValue = $"{(side < 0 ? "Port" : "Star")}_{z:F1}";
                     // Equilibrium (45% of 1.6 m) with radius 0.4 puts the waterline at ship y ≈ 0.
-                    p.FindPropertyRelative("localPosition").vector3Value = new Vector3(side * EdgeX(z) * 0.6f, -0.32f, z);
-                    p.FindPropertyRelative("radius").floatValue = 0.4f;
-                    p.FindPropertyRelative("maxSubmersionDepth").floatValue = 1.6f;
+                    p.FindPropertyRelative("localPosition").vector3Value = new Vector3(side * EdgeX(z) * 0.6f, -0.32f * S, z);
+                    p.FindPropertyRelative("radius").floatValue = 0.4f * S;
+                    p.FindPropertyRelative("maxSubmersionDepth").floatValue = 1.6f * S;
                     p.FindPropertyRelative("buoyancy").floatValue = 1f;
                     p.FindPropertyRelative("damping").floatValue = 1f;
-                    p.FindPropertyRelative("emitContacts").boolValue = z > 5f || z < -6f;
+                    p.FindPropertyRelative("emitContacts").boolValue = z > 5f * S || z < -6f * S;
                 }
             so.ApplyModifiedPropertiesWithoutUndo();
         }
@@ -515,11 +571,11 @@ namespace RumOverboard.EditorTools.ShipSandbox
             MeshPart(parent, name, mesh, mat, pos, scale, rot);
 
         /// <summary>A cylinder spar/rope from a to b (unit cylinder is 2 tall along Y, diameter 1).</summary>
-        private static void Line(Transform parent, string name, Material mat, Vector3 a, Vector3 b, float diameter)
+        private static GameObject Line(Transform parent, string name, Material mat, Vector3 a, Vector3 b, float diameter)
         {
             Vector3 d = b - a;
-            if (d.sqrMagnitude < 1e-6f) return;
-            MeshPart(parent, name, _cylinder, mat, (a + b) * 0.5f, new Vector3(diameter, d.magnitude * 0.5f, diameter),
+            if (d.sqrMagnitude < 1e-6f) return null;
+            return MeshPart(parent, name, _cylinder, mat, (a + b) * 0.5f, new Vector3(diameter, d.magnitude * 0.5f, diameter),
                 Quaternion.FromToRotation(Vector3.up, d.normalized));
         }
     }

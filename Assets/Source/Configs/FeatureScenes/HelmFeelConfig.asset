@@ -22,3 +22,4 @@ MonoBehaviour:
   FlowBuffet: 55
   Turbulence: 140
   TurbulenceFullFlow: 6
+  RudderAuthority: 3

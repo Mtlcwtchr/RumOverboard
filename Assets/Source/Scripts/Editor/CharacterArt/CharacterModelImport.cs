@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using RumOverboard.Gameplay.Crew;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
 
 namespace RumOverboard.EditorTools.CharacterArt
@@ -13,12 +15,19 @@ namespace RumOverboard.EditorTools.CharacterArt
     /// into the project, configures it as Humanoid and verifies the Avatar and its poses.
     ///   Menu:  RumOverboard ▸ Character ▸ Import Base Model / Run Model Self-Test
     ///   Batch: Unity -batchmode -projectPath . -executeMethod RumOverboard.EditorTools.CharacterArt.CharacterModelImport.RunBatch
-    /// Self-test renders rest / zero-muscle reference / test pose shots to Art/Models/Character/base_v1/unity_*.png.
+    /// Self-test renders rest / zero-muscle reference / test pose shots and an eye-style sheet to
+    /// Art/Models/Character/base_v1/unity_*.png.
+    /// Face decal: the FBX material "M_Face" is remapped to M_SailorFace (URP Lit, alpha clip, eyes atlas);
+    /// the eye drawing is picked by <see cref="SailorEyes"/>.
     /// </summary>
     public static class CharacterModelImport
     {
         public const string SourceFbx = "Art/Models/Character/base_v1/base_rigged.fbx";
+        public const string SourceAtlas = "Art/Models/Character/base_v1/eyes_atlas.png";
         public const string AssetPath = "Assets/Source/Art/Character/SailorBase.fbx";
+        public const string AtlasPath = "Assets/Source/Art/Character/SailorEyes.png";
+        public const string FaceMaterialPath = "Assets/Source/Art/Character/" + SailorEyes.FaceMaterialName + ".mat";
+        private const string FbxFaceMaterial = "M_Face";
         private const string ShotsDir = "Art/Models/Character/base_v1";
 
         private static int _failures;
@@ -50,10 +59,13 @@ namespace RumOverboard.EditorTools.CharacterArt
             }
 
             Directory.CreateDirectory(Path.Combine(projectRoot, Path.GetDirectoryName(AssetPath)));
+            Material face = ImportFaceMaterial(projectRoot);
             File.Copy(src, Path.Combine(projectRoot, AssetPath), true);
             AssetDatabase.ImportAsset(AssetPath, ImportAssetOptions.ForceUpdate);
 
             var importer = (ModelImporter)AssetImporter.GetAtPath(AssetPath);
+            if (face != null)
+                importer.AddRemap(new AssetImporter.SourceAssetIdentifier(typeof(Material), FbxFaceMaterial), face);
             importer.globalScale = 1f;
             importer.useFileScale = true;
             importer.bakeAxisConversion = false;
@@ -73,18 +85,64 @@ namespace RumOverboard.EditorTools.CharacterArt
             foreach (HumanBodyBones b in RigBones)
                 human.Add(new HumanBone { humanName = HumanTrait.BoneName[(int)b], boneName = b.ToString(), limit = new HumanLimit { useDefaultValues = true } });
             desc.human = human.ToArray();
-            desc.skeleton = EnforceTPose(desc.skeleton);
+            desc.skeleton = EnforceTPose();
             importer.humanDescription = desc;
             importer.SaveAndReimport();
             Debug.Log($"[CharacterModel] imported {AssetPath} as Humanoid ({human.Count} bones mapped explicitly, T-pose enforced)");
         }
 
         /// <summary>
+        /// Eyes atlas (3x2 cells, see <see cref="EyeStyle"/>) + the face decal material: URP Lit, alpha-clipped,
+        /// base map tiled to one cell (Dots by default; <see cref="SailorEyes"/> switches the cell per renderer).
+        /// </summary>
+        private static Material ImportFaceMaterial(string projectRoot)
+        {
+            string src = Path.Combine(projectRoot, SourceAtlas);
+            if (!File.Exists(src))
+            {
+                Debug.LogError($"[CharacterModel] eyes atlas not found: {src}");
+                return null;
+            }
+            File.Copy(src, Path.Combine(projectRoot, AtlasPath), true);
+            AssetDatabase.ImportAsset(AtlasPath, ImportAssetOptions.ForceUpdate);
+            var ti = (TextureImporter)AssetImporter.GetAtPath(AtlasPath);
+            ti.textureType = TextureImporterType.Default;
+            ti.sRGBTexture = true;
+            ti.alphaSource = TextureImporterAlphaSource.FromInput;
+            ti.alphaIsTransparency = true;
+            ti.wrapMode = TextureWrapMode.Clamp;
+            ti.mipmapEnabled = true;
+            ti.SaveAndReimport();
+
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(FaceMaterialPath);
+            if (mat == null)
+            {
+                mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                AssetDatabase.CreateAsset(mat, FaceMaterialPath);
+            }
+            Vector4 dots = SailorEyes.CellScaleOffset(EyeStyle.Dots);
+            mat.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>(AtlasPath));
+            mat.SetTextureScale("_BaseMap", new Vector2(dots.x, dots.y));
+            mat.SetTextureOffset("_BaseMap", new Vector2(dots.z, dots.w));
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetFloat("_AlphaClip", 1f);
+            mat.SetFloat("_Cutoff", 0.5f);
+            mat.EnableKeyword("_ALPHATEST_ON");
+            mat.SetFloat("_Smoothness", 0.15f);
+            mat.renderQueue = (int)RenderQueue.AlphaTest;
+            EditorUtility.SetDirty(mat);
+            AssetDatabase.SaveAssets();
+            return mat;
+        }
+
+        /// <summary>
         /// The mesh is bound in an A-pose, but muscle space is measured from the avatar's skeleton pose,
         /// which must be a T-pose (same as "Enforce T-Pose" in the Avatar window): arms horizontal,
         /// legs straight down. Only the avatar's skeleton description changes — the mesh stays A-pose.
+        /// The description is rebuilt from the freshly imported hierarchy: the one kept in the .meta
+        /// still holds the previous FBX's bone positions, and Humanoid would put bones back there.
         /// </summary>
-        private static SkeletonBone[] EnforceTPose(SkeletonBone[] skeleton)
+        private static SkeletonBone[] EnforceTPose()
         {
             var model = AssetDatabase.LoadAssetAtPath<GameObject>(AssetPath);
             var go = (GameObject)UnityEngine.Object.Instantiate(model);
@@ -107,11 +165,16 @@ namespace RumOverboard.EditorTools.CharacterArt
                     Align(side + "LowerLeg", side + "Foot", Vector3.down);
                 }
 
-                var result = (SkeletonBone[])skeleton.Clone();
-                for (int i = 0; i < result.Length; i++)
-                    if (bones.TryGetValue(result[i].name, out Transform t) && t != go.transform)
-                        result[i].rotation = t.localRotation;
-                return result;
+                var result = new List<SkeletonBone>();
+                foreach (Transform t in go.GetComponentsInChildren<Transform>(true))
+                    result.Add(new SkeletonBone
+                    {
+                        name = t == go.transform ? model.name : t.name,
+                        position = t.localPosition,
+                        rotation = t.localRotation,
+                        scale = t.localScale,
+                    });
+                return result.ToArray();
             }
             finally { UnityEngine.Object.DestroyImmediate(go); }
         }
@@ -198,13 +261,25 @@ namespace RumOverboard.EditorTools.CharacterArt
             Check("faces +Z (toes ahead of the foot)", B(HumanBodyBones.LeftToes).position.z > B(HumanBodyBones.LeftFoot).position.z + 0.03f);
             Check("left side is -X in Unity (character's left on screen right when facing camera)",
                 B(HumanBodyBones.LeftHand).position.x < 0f && B(HumanBodyBones.RightHand).position.x > 0f);
-            Check($"materials: {renderer.sharedMaterials.Length} slots", renderer.sharedMaterials.Length == 4);
+            Check($"materials: {renderer.sharedMaterials.Length} slots (skin, shirt, shorts, nose, face)", renderer.sharedMaterials.Length == 5);
+            int faceIndex = SailorEyes.FaceMaterialIndex(renderer);
+            if (Check("face decal material remapped to " + SailorEyes.FaceMaterialName, faceIndex >= 0))
+                Check("face material samples the eyes atlas",
+                    renderer.sharedMaterials[faceIndex].GetTexture("_BaseMap") == AssetDatabase.LoadAssetAtPath<Texture2D>(AtlasPath));
+
+            // SailorEyes writes the atlas cell into the face slot's property block.
+            var eyes = go.AddComponent<SailorEyes>();
+            eyes.Style = EyeStyle.Crosses;
+            var probe = new MaterialPropertyBlock();
+            renderer.GetPropertyBlock(probe, Mathf.Max(0, faceIndex));
+            Check("SailorEyes sets the Crosses cell", probe.GetVector("_BaseMap_ST") == SailorEyes.CellScaleOffset(EyeStyle.Crosses));
 
             var cam = MakeCamera(scene);
             Shoot(cam, "unity_warmup"); // first render can miss material variants still compiling
             File.Delete(ShotPath("unity_warmup_front"));
             File.Delete(ShotPath("unity_warmup_three_quarter"));
             Shoot(cam, "unity_rest");
+            ShootEyeSheet(cam, bakedGo.GetComponent<MeshRenderer>(), faceIndex, B(HumanBodyBones.Head).position);
 
             var handler = new HumanPoseHandler(avatar, go.transform);
             var pose = new HumanPose();
@@ -328,21 +403,55 @@ namespace RumOverboard.EditorTools.CharacterArt
             // Front (camera on +Z looking back at the character) and 3/4.
             foreach ((string suffix, Vector3 dir) in new[] { ("front", Vector3.forward), ("three_quarter", new Vector3(-0.7f, 0.2f, 0.7f).normalized) })
             {
+                cam.orthographicSize = 1.15f;
                 cam.transform.position = new Vector3(0f, 0.95f, 0f) + dir * 5f;
                 cam.transform.LookAt(new Vector3(0f, 0.95f, 0f));
-                var rt = RenderTexture.GetTemporary(600, 600, 24);
-                cam.targetTexture = rt;
-                cam.Render();
-                RenderTexture.active = rt;
-                var tex = new Texture2D(600, 600, TextureFormat.RGB24, false);
-                tex.ReadPixels(new Rect(0, 0, 600, 600), 0, 0);
-                tex.Apply();
-                RenderTexture.active = null;
-                cam.targetTexture = null;
-                RenderTexture.ReleaseTemporary(rt);
+                Texture2D tex = RenderShot(cam, 600);
                 File.WriteAllBytes(ShotPath($"{name}_{suffix}"), tex.EncodeToPNG());
                 UnityEngine.Object.DestroyImmediate(tex);
             }
+        }
+
+        /// <summary>Face close-ups for every <see cref="EyeStyle"/>, 3x2 like the atlas → unity_eyes.png.</summary>
+        private static void ShootEyeSheet(Camera cam, MeshRenderer target, int faceIndex, Vector3 head)
+        {
+            const int size = 300;
+            var styles = (EyeStyle[])Enum.GetValues(typeof(EyeStyle));
+            var sheet = new Texture2D(size * SailorEyes.Columns, size * SailorEyes.Rows, TextureFormat.RGB24, false);
+            var block = new MaterialPropertyBlock();
+            Vector3 face = new Vector3(0f, head.y + 0.12f, 0f);
+            cam.orthographicSize = 0.2f;
+            cam.transform.position = face + Vector3.forward * 5f;
+            cam.transform.LookAt(face);
+            foreach (EyeStyle s in styles)
+            {
+                block.Clear();
+                block.SetVector("_BaseMap_ST", SailorEyes.CellScaleOffset(s));
+                target.SetPropertyBlock(block, faceIndex);
+                Texture2D shot = RenderShot(cam, size);
+                int i = (int)s;
+                sheet.SetPixels(i % SailorEyes.Columns * size, (SailorEyes.Rows - 1 - i / SailorEyes.Columns) * size, size, size, shot.GetPixels());
+                UnityEngine.Object.DestroyImmediate(shot);
+            }
+            target.SetPropertyBlock(null, faceIndex);
+            sheet.Apply();
+            File.WriteAllBytes(ShotPath("unity_eyes"), sheet.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(sheet);
+        }
+
+        private static Texture2D RenderShot(Camera cam, int size)
+        {
+            var rt = RenderTexture.GetTemporary(size, size, 24);
+            cam.targetTexture = rt;
+            cam.Render();
+            RenderTexture.active = rt;
+            var tex = new Texture2D(size, size, TextureFormat.RGB24, false);
+            tex.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+            tex.Apply();
+            RenderTexture.active = null;
+            cam.targetTexture = null;
+            RenderTexture.ReleaseTemporary(rt);
+            return tex;
         }
 
         private static string ShotPath(string name) =>

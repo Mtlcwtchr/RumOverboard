@@ -300,7 +300,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 2cf32c5918d64bd6b4412e7d1c859d0d, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  menuScene: FusionSampleMenu
+  menuScene: MainMenu
   bootDelaySeconds: 0
 --- !u!1660057539 &9223372036854775807
 SceneRoots:

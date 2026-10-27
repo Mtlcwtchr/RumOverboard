@@ -118,7 +118,8 @@ namespace RumOverboard.Gameplay.Ocean.Features.Rigging
             return a;
         }
 
-        private static Vector3 ApparentWindLocal(NetworkShip ship, ShipSailsAggregator sails, float time)
+        /// <summary>Apparent wind (true wind − hull velocity) in ship space, horizontal.</summary>
+        public static Vector3 ApparentWindLocal(NetworkShip ship, ShipSailsAggregator sails, float time)
         {
             Vector3 wind = sails.WindSystem != null ? sails.WindSystem.EvaluateWind(ship.transform.position, time) : Vector3.zero;
             Vector3 vel = ship.Body != null && !ship.Body.isKinematic ? ship.Body.linearVelocity : Vector3.zero;

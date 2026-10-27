@@ -125,6 +125,8 @@ namespace RumOverboard.Gameplay.Ocean.FeatureScenes
             hull.LateralDrag = SliderRow("Lateral drag", hull.LateralDrag, 0f, 30f);
             hull.AngularDragCoefficient = SliderRow("Angular drag", hull.AngularDragCoefficient, 0f, 20f);
             hull.CurrentRelativeDrag = SliderRow("Current-relative drag", hull.CurrentRelativeDrag, 0f, 20f);
+            hull.KeelBaseRate = SliderRow("Keel: lateral damping at rest (1/s)", hull.KeelBaseRate, 0f, 2f);
+            hull.KeelRatePerHeadway = SliderRow("Keel: lateral damping per m/s headway", hull.KeelRatePerHeadway, 0f, 2f);
             hull.RollStability = SliderRow("Roll stability", hull.RollStability, 0f, 60f);
             hull.PitchStability = SliderRow("Pitch stability", hull.PitchStability, 0f, 60f);
 
@@ -135,6 +137,7 @@ namespace RumOverboard.Gameplay.Ocean.FeatureScenes
 
             GUILayout.Label($"Submerged points: {hull.LastSubmergedPoints}");
             GUILayout.Label($"Resultant force: {hull.LastResultantForce.magnitude:0.0} N");
+            GUILayout.Label($"Keel force: {hull.LastKeelForce.magnitude:0.0} N");
             GUILayout.Label($"Impact: {hull.LastImpactStrength:0.00}");
         }
 

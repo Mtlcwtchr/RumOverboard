@@ -64,7 +64,7 @@ Host authority: всё решает хост (`FireDirector`), клиенты т
 - `Debug/FireDebugWindow.cs` — **F9**.
 
 Изменения вне фичи: `NetworkPlayer.HandleItems` — `Q` с ведром → `FireDirector.Splash`, `E` на источник →
-`FireDirector.Fill`; `NetworkPlayer.Shove(Δv, ragdoll)` — толчок взрывом; `InteractionKind.WaterSource = 8`;
+`FireDirector.Fill`; `NetworkPlayer.Shove(Δv, ragdoll)` — толчок взрывом; `InteractionKind.WaterSource = 10`;
 подсказка `Q` в `ControlHints`; `ItemsSetup.ItemSpec.Decorate` + `BuildPrefabsAndCatalog(specs, …)` + `AddSpawner`.
 
 ## Сцена, отладка, тесты

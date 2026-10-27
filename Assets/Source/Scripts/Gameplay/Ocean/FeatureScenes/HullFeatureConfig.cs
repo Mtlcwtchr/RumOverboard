@@ -27,6 +27,8 @@ namespace RumOverboard.Gameplay.Ocean.FeatureScenes
         [Min(0f)] public float lateralDrag = 12f;
         [Min(0f)] public float angularDrag = 2.2f;
         [Min(0f)] public float currentRelativeDrag = 2.5f;
+        [Min(0f)] public float keelBaseRate;
+        [Min(0f)] public float keelRatePerHeadway = 0.3f;
         [Min(0f)] public float rollStability = 28f;
         [Min(0f)] public float pitchStability = 22f;
 
@@ -69,6 +71,8 @@ namespace RumOverboard.Gameplay.Ocean.FeatureScenes
                 lateralDrag = hull.LateralDrag;
                 angularDrag = hull.AngularDragCoefficient;
                 currentRelativeDrag = hull.CurrentRelativeDrag;
+                keelBaseRate = hull.KeelBaseRate;
+                keelRatePerHeadway = hull.KeelRatePerHeadway;
                 rollStability = hull.RollStability;
                 pitchStability = hull.PitchStability;
                 drawHullForces = hull.DebugDrawForces;
@@ -112,6 +116,8 @@ namespace RumOverboard.Gameplay.Ocean.FeatureScenes
                 hull.LateralDrag = lateralDrag;
                 hull.AngularDragCoefficient = angularDrag;
                 hull.CurrentRelativeDrag = currentRelativeDrag;
+                hull.KeelBaseRate = keelBaseRate;
+                hull.KeelRatePerHeadway = keelRatePerHeadway;
                 hull.RollStability = rollStability;
                 hull.PitchStability = pitchStability;
                 hull.DebugDrawAlways = true;

@@ -1167,7 +1167,7 @@ MonoBehaviour:
   leaveButton: {fileID: 0}
   interactionHintPanel: {fileID: 0}
   interactionHintLabel: {fileID: 0}
-  menuScene: FusionSampleMenu
+  menuScene: MainMenu
 --- !u!1 &820362656
 GameObject:
   m_ObjectHideFlags: 0
@@ -2764,7 +2764,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1c6bb1c8fcb424761aeed14d6308de59, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Ocean.OceanCurrentSystem
-  globalCurrent: {x: 0.3, y: 0, z: 0.1}
+  globalCurrent: {x: 0.08, y: 0, z: 0.03}
   autoDiscoverZones: 1
 --- !u!114 &2065357382
 MonoBehaviour:
@@ -2791,8 +2791,8 @@ MonoBehaviour:
   runtimeWaveSpeedMultiplier: 1
   runtimeCurrentSpeedMultiplier: 1
   runtimeCurrentDirectionOffsetDegrees: 0
-  windToCurrentFactor: 0.06
-  maxWindDrivenCurrent: 2.5
+  windToCurrentFactor: 0.012
+  maxWindDrivenCurrent: 0.35
 --- !u!4 &2065357383
 Transform:
   m_ObjectHideFlags: 0

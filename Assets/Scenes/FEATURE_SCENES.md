@@ -93,6 +93,37 @@ the same session for co-op testing.
 - Player build: **Playtest → Build Windows Player** → `Builds/Playtest/RumOverboard.exe` (starts in this scene) + .bat launchers
   incl. an automated two-window network self-test. Docs: `Assets/Source/Docs/Playtest.md`.
 
+## SailFurlScene / ShipStatusScene
+
+- Scene files: `Assets/Scenes/SailFurlScene.unity` (calm, F7 open), `Assets/Scenes/ShipStatusScene.unity`
+  (moderate sea, F8 open) — menu **RumOverboard → Ship Sandbox → Build Feature Scenes**.
+- Focus: furling / casting loose sails on the yards (E from the top or while climbing), the ship status
+  HUD widget (wind vs bow, rudder, sails, lines; Tab toggles). Rope tension visuals are tuned in F2.
+- Aggregator: `NetworkShip` (furl arrays + API; widget reads replicated state only).
+- Debug UI: `SailFurlDebugWindow` (F7), `ShipStatusDebugWindow` (F8).
+- Config assets: `Assets/Source/Configs/FeatureScenes/SailFurlConfig.asset`, `ShipStatusConfig.asset`.
+- Details: `Assets/Source/Docs/ShipSandbox.md`.
+
+## WorldMapScene
+
+- Scene file: `Assets/Scenes/WorldMapScene.unity` (menu **RumOverboard → World → Build World Map Scene**).
+- Focus: procedural world (checkpoint islands + clustered ocean of rising difficulty), start moored at
+  the first island, chart table with fog-of-war map, mooring bollards.
+- Aggregator: `NetworkWorld` (scene NetworkObject; seed/progress/mooring replicated, generation local).
+- Debug UI: `WorldDebugWindow` (F6).
+- Config asset: `Assets/Source/Configs/FeatureScenes/WorldGenConfig.asset`.
+- Details: `Assets/Source/Docs/WorldMap.md`.
+
+## MainMenu / Lobby (frontend)
+
+- Scene files: `Assets/Scenes/MainMenu.unity`, `Assets/Scenes/Lobby.unity`
+  (menu **RumOverboard → Frontend → Build Menu Scenes**; also sets Boot → MainMenu and build order).
+- Focus: boot menu (new / load voyage as host, join by code or list, offline solo), lobby room with
+  ready flags, voyage saves, pause menu in the world.
+- Session owner: `GameSession` (DontDestroyOnLoad), UI: `FrontendUI` (built in code), lobby state:
+  `NetworkLobby` (scene NetworkObject), lobby backend: `ILobbyDirectory` (Photon now, Steam later).
+- Details: `Assets/Source/Docs/Frontend.md`.
+
 ## Workflow reminder
 
 1. Build mechanic in dedicated feature scene.

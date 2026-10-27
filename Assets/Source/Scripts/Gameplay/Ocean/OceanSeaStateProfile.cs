@@ -28,7 +28,7 @@ namespace RumOverboard.Gameplay.Ocean
 
         [Header("Currents")]
         public Vector2 globalCurrentDirection = new Vector2(1f, 0f);
-        [Min(0f)] public float globalCurrentSpeed = 0.25f;
+        [Min(0f)] public float globalCurrentSpeed = 0.1f;
 
         [Header("Visual tuning")]
         [Range(0f, 1f)] public float foamIntensity = 0.35f;

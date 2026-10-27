@@ -25,12 +25,11 @@ namespace RumOverboard.Gameplay.Ocean.Features.Helm
         {
             var kb = Keyboard.current;
             if (kb != null && kb.f4Key.wasPressedThisFrame)
-            {
                 visible = !visible;
-                Cursor.lockState = visible ? CursorLockMode.None : CursorLockMode.Locked;
-                Cursor.visible = visible;
-            }
+            RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, visible);
         }
+
+        private void OnDisable() => RumOverboard.Gameplay.UiInputCapture.SetDebugWindow(this, false);
 
         private void OnGUI()
         {
@@ -89,6 +88,8 @@ namespace RumOverboard.Gameplay.Ocean.Features.Helm
             cfg.FlowBuffet = Slider("Side-flow buffet", cfg.FlowBuffet, 0f, 400f);
             cfg.Turbulence = Slider("Turbulence °/s²", cfg.Turbulence, 0f, 800f);
             cfg.TurbulenceFullFlow = Slider("Turbulence full flow m/s", cfg.TurbulenceFullFlow, 0.5f, 15f);
+            GUILayout.Label("<b>Steering</b>");
+            cfg.RudderAuthority = Slider("Rudder authority ×", cfg.RudderAuthority, 0f, 8f);
 
             GUILayout.BeginHorizontal();
             if (GUILayout.Button("Reset from config"))

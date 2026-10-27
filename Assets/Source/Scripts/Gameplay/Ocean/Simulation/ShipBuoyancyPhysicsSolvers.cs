@@ -240,5 +240,26 @@ namespace RumOverboard.Gameplay.Ocean.Simulation
             return windForce;
         }
     }
+
+    /// <summary>
+    /// Keel / lateral plane of the hull: moving ahead, the underwater body works like a hydrofoil and
+    /// resists sideways motion far harder than the per-point drag does — that is what turns the sails'
+    /// side force into headway and lets a ship hold a course to windward instead of sliding to leeward.
+    /// Resistance grows with headway (keel lift ∝ speed × leeway), so a ship lying still drifts as before.
+    /// </summary>
+    public static class ShipKeelSolver
+    {
+        /// <returns>Sideways acceleration (world, m/s²) opposing the lateral velocity through the water.</returns>
+        public static Vector3 Solve(Vector3 relativeVelocity, Vector3 forward, Vector3 right,
+            float baseRate, float ratePerHeadway, float submergedFraction, float dragMultiplier, float deltaTime)
+        {
+            float lateral = Vector3.Dot(relativeVelocity, right);
+            float headway = Mathf.Abs(Vector3.Dot(relativeVelocity, forward));
+            float rate = (Mathf.Max(0f, baseRate) + Mathf.Max(0f, ratePerHeadway) * headway)
+                         * Mathf.Clamp01(submergedFraction) * Mathf.Max(0f, dragMultiplier);
+            rate = Mathf.Min(rate, 0.5f / Mathf.Max(0.0001f, deltaTime)); // explicit step: never overshoot
+            return -right * (lateral * rate);
+        }
+    }
 }
 

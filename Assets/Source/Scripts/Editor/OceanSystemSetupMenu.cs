@@ -250,7 +250,7 @@ namespace Source.Scripts.Editor
         {
             var profile = GetOrCreateProfile(fileName);
             profile.globalCurrentDirection = new Vector2(1f, 0.1f);
-            profile.globalCurrentSpeed = 0.15f;
+            profile.globalCurrentSpeed = 0.05f;
             profile.directionJitterDegrees = 1.5f;
             profile.foamIntensity = 0.16f;
             profile.crestFoamThreshold = 0.76f;
@@ -279,7 +279,7 @@ namespace Source.Scripts.Editor
         {
             var profile = GetOrCreateProfile(fileName);
             profile.globalCurrentDirection = new Vector2(1f, 0.35f);
-            profile.globalCurrentSpeed = 0.35f;
+            profile.globalCurrentSpeed = 0.12f;
             profile.directionJitterDegrees = 5f;
             profile.foamIntensity = 0.44f;
             profile.crestFoamThreshold = 0.62f;
@@ -310,7 +310,7 @@ namespace Source.Scripts.Editor
         {
             var profile = GetOrCreateProfile(fileName);
             profile.globalCurrentDirection = new Vector2(0.7f, 0.7f);
-            profile.globalCurrentSpeed = 0.7f;
+            profile.globalCurrentSpeed = 0.3f;
             profile.directionJitterDegrees = 10f;
             profile.foamIntensity = 0.9f;
             profile.crestFoamThreshold = 0.48f;

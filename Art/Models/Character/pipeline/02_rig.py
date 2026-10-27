@@ -23,7 +23,11 @@ bpy.ops.wm.open_mainfile(filepath=src_blend)
 body = bpy.data.objects["Body"]
 me = body.data
 co = [body.matrix_world @ v.co for v in me.vertices]
-edges = [(co[e.vertices[0]], co[e.vertices[1]]) for e in me.edges]
+# Наклейка лица (M_Face) — отдельная оболочка над кожей: в срезы не берём, веса задаём сами.
+face_mat = next((i for i, m in enumerate(me.materials) if m and m.name.startswith("M_Face")), -1)
+decal_verts = {v for p in me.polygons if p.material_index == face_mat for v in p.vertices}
+edges = [(co[e.vertices[0]], co[e.vertices[1]]) for e in me.edges
+         if e.vertices[0] not in decal_verts and e.vertices[1] not in decal_verts]
 H = max(c.z for c in co)
 
 
@@ -96,7 +100,7 @@ neck_y = sum(c["cy"] for c in slices[neck_z]) / len(slices[neck_z])
 leg = [max(cl, key=lambda c: c["cx"]) for z, cl in slices.items() if 0.15 < z < crotch_z - 0.1]
 leg_x = sum(c["cx"] for c in leg) / len(leg)
 leg_y = sum((c["y0"] + c["y1"]) / 2 for c in leg) / len(leg)
-foot_front = min(p.y for p in co if p.z < 0.05)
+foot_front = min(co[i].y for i in range(len(co)) if co[i].z < 0.05 and i not in decal_verts)
 ankle_z = min(z for z, cl in slices.items()
               if z > 0.03 and all(c["y0"] > leg_y - 0.09 for c in cl if c["x0"] > 0))
 
@@ -114,7 +118,12 @@ print("LANDMARKS", {k: round(v, 3) for k, v in L.items()})
 # --- Суставы (левая сторона, +X) -----------------------------------------------------------
 
 hand_len = 0.14
-shoulder_z = armpit_z + 0.07
+# Плечевой сустав — на радиус руки ниже верха плеча (луч вниз от уровня шеи, мимо головы и ушей);
+# от «подмышка + константа» отказались: подмышка гуляет вместе с разбиением сетки.
+arm_radius = 0.045
+shoulder_x = arm_x(armpit_z + 0.05)
+hit, top_loc, _, _ = body.ray_cast(Vector((shoulder_x, arm_y, neck_z)), Vector((0, 0, -1)))
+shoulder_z = (top_loc.z - arm_radius) if hit else armpit_z + 0.05
 # Кисть загнута внутрь относительно предплечья: запястье — на линии руки,
 # кончик — по реальному центру варежки чуть выше самой нижней точки.
 wrist_z = hand_tip_z + hand_len
@@ -127,8 +136,9 @@ elbow = (upper_arm + wrist) / 2 + Vector((0, 0.02, 0))  # чуть назад: �
 hip_joint = Vector((leg_x, leg_y, crotch_z - 0.02))
 ankle = Vector((leg_x, leg_y, ankle_z))
 knee = (hip_joint + ankle) / 2 + Vector((0, -0.02, 0))  # чуть вперёд: колено гнётся назад
-toes = Vector((leg_x, (leg_y + foot_front) / 2, 0.03))
-toe_end = Vector((leg_x, foot_front, 0.03))
+# Носок — по оси стопы, не у самой подошвы и не в кончике (там стопа тонкая).
+toes = Vector((leg_x, (leg_y + foot_front) / 2, 0.04))
+toe_end = Vector((leg_x, foot_front + 0.025, 0.035))
 
 hips = Vector((0, torso_y, crotch_z + 0.02))
 spine = Vector((0, torso_y, crotch_z + (neck_z - crotch_z) * 0.22))
@@ -136,7 +146,7 @@ chest = Vector((0, torso_y, crotch_z + (neck_z - crotch_z) * 0.55))
 neck = Vector((0, neck_y, neck_z - 0.06))
 head = Vector((0, neck_y, neck_z + 0.04))
 head_end = Vector((0, neck_y, H))
-clavicle = Vector((0.04, torso_y, shoulder_z + 0.01))
+clavicle = Vector((0.04, torso_y, shoulder_z - 0.01))
 
 # --- Скелет --------------------------------------------------------------------------------
 
@@ -178,15 +188,29 @@ for b in eb:
     b.align_roll(Vector((0, -1, 0)))
 bpy.ops.object.mode_set(mode='OBJECT')
 
-# Проверка: точки вдоль каждой кости лежат внутри меша (нормаль ближайшей точки смотрит от неё).
+# Проверка: точки вдоль каждой кости лежат внутри меша. Тест чётности пересечений лучей (3 направления,
+# большинство): «нормаль ближайшей точки» ошибается у вогнутостей вроде подмышки.
+def inside(p):
+    votes = 0
+    for d in (Vector((0, 0, 1)), Vector((1, 0.13, 0.07)).normalized(), Vector((-0.11, 1, 0.05)).normalized()):
+        hits, origin = 0, p.copy()
+        for _ in range(64):
+            ok, loc, _, _ = body.ray_cast(origin, d)
+            if not ok:
+                break
+            hits += 1
+            origin = loc + d * 1e-4
+        votes += hits % 2
+    return votes >= 2
+
+
 outside = {}
 for b in rig.data.bones:
     h, t = b.head_local, b.tail_local
     for i in range(1, 10):
         p = h.lerp(t, i / 10)
-        ok, loc, nrm, _ = body.closest_point_on_mesh(p)
-        if ok and (loc - p).dot(nrm) < 0:
-            outside[b.name] = outside.get(b.name, 0) + 1
+        if not inside(p):
+            outside.setdefault(b.name, []).append(f"t={i / 10:.1f} {tuple(round(x, 3) for x in p)}")
 print("BONES_OUTSIDE", outside or "none")
 
 # --- Веса ----------------------------------------------------------------------------------
@@ -196,6 +220,14 @@ body.select_set(True)
 rig.select_set(True)
 bpy.context.view_layer.objects.active = rig
 bpy.ops.object.parent_set(type='ARMATURE_AUTO')
+
+# Наклейка лица едет строго с головой, иначе при наклоне шеи она отстаёт от кожи и мерцает.
+if decal_verts:
+    ids = list(decal_verts)
+    for g in body.vertex_groups:
+        g.remove(ids)
+    body.vertex_groups["Head"].add(ids, 1.0, 'REPLACE')
+print("DECAL_VERTS", len(decal_verts), "-> Head")
 
 groups = {g.index: g.name for g in body.vertex_groups}
 unweighted = sum(1 for v in me.vertices if not any(g.weight > 1e-4 for g in v.groups))

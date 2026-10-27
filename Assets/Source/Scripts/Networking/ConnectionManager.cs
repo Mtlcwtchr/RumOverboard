@@ -93,6 +93,9 @@ namespace RumOverboard.Networking
 
         private NetworkObject _ship;
         private bool _shipSpawnPending;
+
+        // Upper bound on waiting for a pending ShipSpawnPose provider (world generation).
+        private const float MaxSpawnPoseWait = 30f;
         private bool _warnedMissingShipPrefab;
         private GameObject _disabledPlaceholderShip;
         private bool _disabledPlaceholderWasActive;
@@ -100,9 +103,17 @@ namespace RumOverboard.Networking
         public NetworkRunner Runner => _runner;
         public bool IsRunning => _runner != null && _runner.IsRunning;
 
+        /// <summary>
+        /// Set by an external session owner (the frontend's GameSession) while it runs the
+        /// NetworkRunner: scenes then always attach to that runner instead of auto-starting their own.
+        /// </summary>
+        public static bool ExternalSessionActive { get; set; }
+
         private async void Start()
         {
-            if (autoStartOnPlay)
+            if (ExternalSessionActive || FindRunningRunner() != null)
+                await AttachToActiveRunner();
+            else if (autoStartOnPlay)
                 await StartGame(autoStartMode, _autoSession);
             else
                 await AttachToActiveRunner();
@@ -156,7 +167,7 @@ namespace RumOverboard.Networking
         /// inside Fusion's tick and predicted forward on clients. SimulateForward = clients run
         /// Physics.Simulate on new (forward) ticks — the cheap client-side prediction mode.
         /// </summary>
-        private static void EnsurePhysicsSimulator(GameObject runnerGo)
+        public static void EnsurePhysicsSimulator(GameObject runnerGo)
         {
             if (runnerGo.GetComponent<Fusion.Addons.Physics.RunnerSimulatePhysics3D>() != null)
                 return;
@@ -278,17 +289,20 @@ namespace RumOverboard.Networking
         /// Pushes our App Id into Fusion's global settings so the dashboard step is optional.
         /// (PhotonAppSettings.Global exists once the Fusion SDK is imported.)
         /// </summary>
-        private void ApplyAppId()
+        private void ApplyAppId() => ApplyAppId(config);
+
+        /// <summary>Pushes the App Id / region from <paramref name="cfg"/> into Fusion's global settings.</summary>
+        public static void ApplyAppId(GameConfig cfg)
         {
-            string appId = config != null && !string.IsNullOrEmpty(config.PhotonAppId)
-                ? config.PhotonAppId
+            string appId = cfg != null && !string.IsNullOrEmpty(cfg.PhotonAppId)
+                ? cfg.PhotonAppId
                 : GameConfig.DefaultAppId;
 
             var global = PhotonAppSettings.Global;
             if (global == null || string.IsNullOrEmpty(appId)) return;
 
             global.AppSettings.AppIdFusion = appId;
-            string region = config != null ? config.FixedRegion : string.Empty;
+            string region = cfg != null ? cfg.FixedRegion : string.Empty;
             if (!string.IsNullOrEmpty(region))
                 global.AppSettings.FixedRegion = region;
         }
@@ -326,6 +340,7 @@ namespace RumOverboard.Networking
         private async UniTaskVoid SpawnRoutine(NetworkRunner runner, PlayerRef player)
         {
             float deadline = Time.realtimeSinceStartup + 8f;
+            float hardDeadline = Time.realtimeSinceStartup + MaxSpawnPoseWait + 8f;
             try
             {
                 while (runner != null && runner.IsRunning && Time.realtimeSinceStartup < deadline)
@@ -333,9 +348,13 @@ namespace RumOverboard.Networking
                     if (_players.ContainsKey(player))
                         return;
 
+                    // The world that decides the ship's berth is still generating: keep waiting.
+                    if (ShipSpawnPose.Pending && Time.realtimeSinceStartup < hardDeadline)
+                        deadline = Mathf.Max(deadline, Time.realtimeSinceStartup + 6f);
+
                     // Crew spawns on the ship's deck: wait (briefly) for the ship to exist first.
                     if (shipPrefab.IsValid && spawnShipOnSessionStart && _ship == null &&
-                        Time.realtimeSinceStartup < deadline - 4f)
+                        (Time.realtimeSinceStartup < deadline - 4f || ShipSpawnPose.Pending))
                     {
                         EnsureShipSpawned();
                         await UniTask.Delay(100);
@@ -439,6 +458,7 @@ namespace RumOverboard.Networking
         private async UniTaskVoid SpawnShipRoutine(NetworkRunner runner)
         {
             float deadline = Time.realtimeSinceStartup + 8f;
+            float poseDeadline = Time.realtimeSinceStartup + MaxSpawnPoseWait;
 
             try
             {
@@ -446,6 +466,17 @@ namespace RumOverboard.Networking
                 {
                     if (_ship != null)
                         return;
+
+                    if (ShipSpawnPose.Pending)
+                    {
+                        if (Time.realtimeSinceStartup < poseDeadline)
+                        {
+                            deadline = Mathf.Max(deadline, Time.realtimeSinceStartup + 4f);
+                            await UniTask.Delay(100);
+                            continue;
+                        }
+                        Debug.LogError("[ConnectionManager] Ship spawn pose provider never became ready; using the scene spawn point.");
+                    }
 
                     GetShipSpawnPose(out Vector3 pos, out Quaternion rot, out GameObject placeholder);
 
@@ -486,6 +517,9 @@ namespace RumOverboard.Networking
         private void GetShipSpawnPose(out Vector3 pos, out Quaternion rot, out GameObject placeholder)
         {
             placeholder = null;
+
+            if (ShipSpawnPose.TryGet(out pos, out rot))
+                return;
 
             if (shipSpawnPoint != null)
             {

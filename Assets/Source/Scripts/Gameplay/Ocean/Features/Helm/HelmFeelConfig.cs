@@ -42,6 +42,11 @@ namespace RumOverboard.Gameplay.Ocean.Features.Helm
         [Tooltip("Forward flow (m/s) at which turbulence is at full strength.")]
         public float TurbulenceFullFlow = 6f;
 
+        [Header("Steering")]
+        [Tooltip("Multiplier on the rudder's yaw torque (ShipHelm.rudderYawCoefficient). The hull's own " +
+                 "yaw resistance (lateral drag + angular drag) is strong, so ×1 barely turns a brig.")]
+        public float RudderAuthority = 3f;
+
         private static HelmFeelConfig _fallback;
         private static HelmFeelConfig _active;
 

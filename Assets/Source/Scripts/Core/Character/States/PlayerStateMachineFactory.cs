@@ -6,14 +6,14 @@ namespace RumOverboard.Core.Character.States
     /// Wires the crew member's mask-based state machine. Locomotion states are mutually exclusive
     /// (none lists another in CompatibleWith); DrinkingRum layers on top of most of them.
     ///
-    /// Attached states (Climbing / Steering / HoldingRope) all start from one Interact press on a
+    /// Attached states (Climbing / Steering / Rowing / HoldingRope) all start from one Interact press on a
     /// validated look-at target and end on Interact again, on a state's own ReleaseRequested
     /// (top/bottom of a rail, jump off, lost anchor) or when the ragdoll takes over.
     /// Returns a fresh machine per player (states hold per-instance data).
     /// </summary>
     public static class PlayerStateMachineFactory
     {
-        private const PlayerState Attached = PlayerState.Climbing | PlayerState.Steering;
+        private const PlayerState Attached = PlayerState.Climbing | PlayerState.Steering | PlayerState.Rowing;
 
         public static PlayerStateMachine Build()
         {
@@ -25,6 +25,7 @@ namespace RumOverboard.Core.Character.States
                 .AddState(new ClimbingState())
                 .AddState(new SwimmingState())
                 .AddState(new SteeringState())
+                .AddState(new RowingState())
                 .AddState(new HoldingRopeState())
                 .AddState(new CarryingState())
                 .AddState(drink);
@@ -45,19 +46,24 @@ namespace RumOverboard.Core.Character.States
                          && !c.Machine.IsActive(PlayerState.HoldingRope) && !c.Machine.IsActive(PlayerState.Carrying))
                 .AddActivate(PlayerState.Steering,
                     c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f
-                         && !c.Machine.IsActive(PlayerState.Carrying));
+                         && !c.Machine.IsActive(PlayerState.Carrying))
+                .AddActivate(PlayerState.Rowing,
+                    c => c.InteractPressed && c.OarTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f
+                         && !c.Machine.IsActive(PlayerState.HoldingRope) && !c.Machine.IsActive(PlayerState.Carrying));
             // HoldingRope (a line end in hand) is driven by NetworkPlayer: take / tie / drop.
 
-            // --- Detach: Interact again, the state asked to let go, or knocked out ---
+            // --- Detach: Interact again (unless it's aimed at something worked from the rigging, e.g. a
+            //     yard), the state asked to let go, or knocked out ---
             machine
                 .AddDeactivate(Attached,
-                    c => IsAttached(c) && (c.InteractPressed || c.ReleaseRequested || c.ControlAuthority < 0.3f));
+                    c => IsAttached(c) && ((c.InteractPressed && !UsesFromRail(c)) || c.ReleaseRequested || c.ControlAuthority < 0.3f));
 
             // --- Action layer: a sip from the bottle in hand (Q) ---
             machine
                 .AddActivate(PlayerState.DrinkingRum,
                     c => c.DrinkPressed && c.CanDrink
                          && !c.Machine.IsActive(PlayerState.Steering)
+                         && !c.Machine.IsActive(PlayerState.Rowing)
                          && !c.Machine.IsActive(PlayerState.HoldingRope)
                          && !c.Machine.IsActive(PlayerState.Swimming)
                          && !c.Machine.IsActive(PlayerState.DrinkingRum))
@@ -68,5 +74,7 @@ namespace RumOverboard.Core.Character.States
         }
 
         private static bool IsAttached(StateContext c) => (c.Machine.Active & Attached) != 0;
+
+        private static bool UsesFromRail(StateContext c) => c.ClimbUseTarget && c.Machine.IsActive(PlayerState.Climbing);
     }
 }

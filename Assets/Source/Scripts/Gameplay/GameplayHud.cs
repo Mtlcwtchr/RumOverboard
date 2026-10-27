@@ -30,7 +30,7 @@ namespace RumOverboard.Gameplay
         [SerializeField] private Text interactionHintLabel;
 
         [Tooltip("Scene to return to when leaving the session.")]
-        [SerializeField] private string menuScene = "FusionSampleMenu";
+        [SerializeField] private string menuScene = "MainMenu";
 
         private bool _leaving;
         private string _lastInteractionHint;
@@ -102,6 +102,14 @@ namespace RumOverboard.Gameplay
         {
             if (_leaving) return;
             _leaving = true;
+
+            // Real game flow: the frontend session owns the runner, saves the voyage and returns to its menu.
+            if (RumOverboard.Frontend.GameSession.Instance != null)
+            {
+                await RumOverboard.Frontend.GameSession.Instance.LeaveAsync();
+                _leaving = false;
+                return;
+            }
 
             NetworkRunner runner = ActiveRunner();
             if (runner != null && runner.IsRunning)
