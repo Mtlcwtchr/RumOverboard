@@ -24,7 +24,7 @@ namespace RumOverboard.Core.Character.States
         private Vector3 _anchorLocal;
 
         public override PlayerState Id => PlayerState.Grounded;
-        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope;
+        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope | PlayerState.Carrying;
 
         public override void Enter(StateContext ctx)
         {
@@ -34,8 +34,9 @@ namespace RumOverboard.Core.Character.States
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f;
-            if (ctx.SprintHeld)
+            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f) * ctx.CarrySpeedFactor; // heavy load walks slower
+            bool sprint = ctx.SprintHeld && ctx.CanSprint; // out of stamina → walk
+            if (sprint)
                 speed *= ctx.Config != null ? ctx.Config.SprintMultiplier : 1.6f;
             float accel = ctx.Config != null ? ctx.Config.GroundAcceleration : 40f;
             float decel = ctx.Config != null ? ctx.Config.GroundDeceleration : 55f;
@@ -55,6 +56,7 @@ namespace RumOverboard.Core.Character.States
             Vector2 currentPlanar = new Vector2(vel.x - pv.x, vel.z - pv.z); // relative to deck
             Vector2 inputPlanar = new Vector2(wish.x, wish.z);
             float inputMagnitude = Mathf.Clamp01(inputPlanar.magnitude);
+            ctx.Sprinting = sprint && inputMagnitude > 0.1f;
 
             float currentSpeed = currentPlanar.magnitude;
             float targetSpeed = speed * inputMagnitude;
@@ -97,13 +99,14 @@ namespace RumOverboard.Core.Character.States
                 vel.y = pv.y;
             ctx.Body.linearVelocity = vel;
 
-            if (ctx.JumpPressed)
+            if (ctx.JumpPressed && ctx.CanJump)
             {
                 float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 6f;
                 vel = ctx.Body.linearVelocity;
                 vel.y = onMovingDeck ? pv.y : 0f; // jump relative to the deck we're riding
                 ctx.Body.linearVelocity = vel + Vector3.up * impulse;
                 ctx.CoyoteTimer = 0f;
+                ctx.Jumped = true;
             }
 
             ctx.PlanarSpeed = nextPlanar.magnitude; // animation reflects walking, not ship drift
@@ -146,24 +149,25 @@ namespace RumOverboard.Core.Character.States
     public sealed class InAirState : PlayerStateBase
     {
         public override PlayerState Id => PlayerState.InAir;
-        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope;
+        public override PlayerState CompatibleWith => PlayerState.DrinkingRum | PlayerState.HoldingRope | PlayerState.Carrying;
 
         public override void Enter(StateContext ctx) => ctx.Body.useGravity = true;
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f;
+            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f) * ctx.CarrySpeedFactor;
             float riseExtraGravity = ctx.Config != null ? ctx.Config.ExtraRiseGravity : 8f;
             float fallExtraGravity = ctx.Config != null ? ctx.Config.ExtraFallGravity : 20f;
 
             ctx.CoyoteTimer = Mathf.Max(0f, ctx.CoyoteTimer - ctx.DeltaTime);
-            if (ctx.JumpPressed && ctx.CoyoteTimer > 0f)
+            if (ctx.JumpPressed && ctx.CanJump && ctx.CoyoteTimer > 0f)
             {
                 float impulse = ctx.Config != null ? ctx.Config.JumpImpulse : 6f;
                 Vector3 preJump = ctx.Body.linearVelocity;
                 preJump.y = Mathf.Max(0f, preJump.y);
                 ctx.Body.linearVelocity = preJump + Vector3.up * impulse;
                 ctx.CoyoteTimer = 0f;
+                ctx.Jumped = true;
             }
 
             Vector3 wish = StateMovement.InputToWorld(ctx);
@@ -219,9 +223,11 @@ namespace RumOverboard.Core.Character.States
                 return;
             }
 
-            float speed = (ctx.Config != null ? ctx.Config.ClimbSpeed : 2.5f) * rail.SpeedMultiplier;
-            if (ctx.SprintHeld)
+            float speed = (ctx.Config != null ? ctx.Config.ClimbSpeed : 2.5f) * rail.SpeedMultiplier * ctx.StaminaSpeedFactor;
+            bool sprint = ctx.SprintHeld && ctx.CanSprint;
+            if (sprint)
                 speed *= 1.5f;
+            ctx.Sprinting = sprint && ctx.Move.sqrMagnitude > 0.01f;
 
             float dt = ctx.DeltaTime;
             ctx.ClimbU += ctx.Move.y * speed * dt;
@@ -293,14 +299,14 @@ namespace RumOverboard.Core.Character.States
     public sealed class SwimmingState : PlayerStateBase
     {
         public override PlayerState Id => PlayerState.Swimming;
-        public override PlayerState CompatibleWith => PlayerState.HoldingRope;
+        public override PlayerState CompatibleWith => PlayerState.HoldingRope | PlayerState.Carrying;
 
         public override void Enter(StateContext ctx) => ctx.Body.useGravity = false;
         public override void Exit(StateContext ctx) => ctx.Body.useGravity = true;
 
         public override void FixedTick(StateContext ctx)
         {
-            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f) * 0.6f;
+            float speed = (ctx.Config != null ? ctx.Config.MoveSpeed : 4.5f) * 0.6f * ctx.StaminaSpeedFactor * ctx.CarrySpeedFactor;
             Vector3 wish = StateMovement.InputToWorld(ctx);
 
             Vector3 vel = ctx.Body.linearVelocity;
@@ -311,8 +317,11 @@ namespace RumOverboard.Core.Character.States
             float chestY = ctx.Body.position.y + 1.2f;
             float error = ctx.WaterSurfaceY - chestY;
             vel.y = Mathf.Lerp(vel.y, Mathf.Clamp(error * 3f, -3f, 3f), 0.15f);
-            if (ctx.JumpPressed && error > -0.3f)
-                vel.y = 4f;
+            if (ctx.JumpPressed && ctx.CanJump && error > -0.3f)
+            {
+                vel.y = 4f; // lunge out of the water
+                ctx.Jumped = true;
+            }
             ctx.Body.linearVelocity = vel;
 
             StateMovement.FaceMoveDirection(ctx, wish);

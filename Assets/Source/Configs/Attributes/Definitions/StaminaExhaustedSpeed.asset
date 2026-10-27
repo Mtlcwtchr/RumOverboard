@@ -1,0 +1,22 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dcffa43659fe569429498b74ca505d1d, type: 3}
+  m_Name: StaminaExhaustedSpeed
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributeDefinition
+  id: 6
+  Kind: 0
+  DefaultValue: 0.5
+  Min: 0
+  Max: 1
+  StartFull: 1
+  Replicated: 0
+  Description: Climb / swim speed multiplier while exhausted.

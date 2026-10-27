@@ -66,6 +66,8 @@ namespace RumOverboard.Gameplay.Crew
                 GUILayout.EndHorizontal();
             }
 
+            DrawSoberRate();
+
             GameConfig cfg = _config;
             if (cfg != null)
             {
@@ -106,6 +108,43 @@ namespace RumOverboard.Gameplay.Crew
             }
             GUILayout.EndScrollView();
             GUI.DragWindow(new Rect(0f, 0f, 10000f, 22f));
+        }
+
+        // Intoxication itself is a crew attribute (Attr.Drunkenness); its sober-up rate is a Player-profile
+        // stat — tuned here for the whole host-owned crew, saved to the profile (not GameConfig).
+        private static void DrawSoberRate()
+        {
+            Attributes.AttributeSet reference = null;
+            foreach (NetworkPlayer p in NetworkPlayer.All)
+                if (p != null && p.HasStateAuthority && p.Attributes != null && p.Attributes.Set != null &&
+                    p.Attributes.Set.Has(Attributes.Attr.DrunkSoberRate))
+                {
+                    reference = p.Attributes.Set;
+                    break;
+                }
+            if (reference == null) return;
+
+            GUILayout.Space(6f);
+            float before = reference.GetBase(Attributes.Attr.DrunkSoberRate);
+            float after = Slider("Sober up /s (profile)", before, 0f, 0.2f);
+            if (!Mathf.Approximately(before, after))
+                foreach (NetworkPlayer p in NetworkPlayer.All)
+                    if (p != null && p.HasStateAuthority && p.Attributes != null && p.Attributes.Set != null)
+                        p.Attributes.Set.SetBase(Attributes.Attr.DrunkSoberRate, after);
+#if UNITY_EDITOR
+            int slot = reference.SlotOf(Attributes.Attr.DrunkSoberRate);
+            if (!Mathf.Approximately(after, reference.Layout.BaseValues[slot]) && GUILayout.Button("Save sober rate → Player profile"))
+            {
+                foreach (NetworkPlayer p in NetworkPlayer.All)
+                {
+                    if (p == null || p.Attributes == null || p.Attributes.Profile == null) continue;
+                    p.Attributes.Profile.EditorSetBaseValue(reference.Layout.Definitions[slot], after);
+                    UnityEditor.EditorUtility.SetDirty(p.Attributes.Profile);
+                    UnityEditor.AssetDatabase.SaveAssetIfDirty(p.Attributes.Profile);
+                    break; // shared profile asset
+                }
+            }
+#endif
         }
 
         private static float Slider(string label, float value, float min, float max)

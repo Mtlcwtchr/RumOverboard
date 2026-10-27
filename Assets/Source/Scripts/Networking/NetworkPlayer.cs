@@ -5,7 +5,11 @@ using RumOverboard.Core;
 using RumOverboard.Core.Character;
 using RumOverboard.Core.Character.States;
 using RumOverboard.Gameplay;
+using RumOverboard.Gameplay.Attributes;
+using RumOverboard.Gameplay.Crew;
+using RumOverboard.Gameplay.Fire;
 using RumOverboard.Gameplay.Interaction;
+using RumOverboard.Gameplay.Items;
 using RumOverboard.Gameplay.Ocean;
 using RumOverboard.Gameplay.Ocean.Features.Rigging;
 using RumOverboard.StateMachine;
@@ -21,7 +25,7 @@ namespace RumOverboard.Networking
     /// </summary>
     public struct PlayerNetState : INetworkStruct
     {
-        public float Drunkenness;    // 0..1
+        // Drunkenness moved to the crew attributes (Attr.Drunkenness, replicated by NetworkAttributes).
         public float RagdollControl; // 0..1 — how much authority the ragdoll has
         public float PlanarSpeed;    // for animation on all peers
         public float TuckAmount;     // 0..1 jump/land leg-tuck — drives the capsule + anim on all peers
@@ -36,6 +40,9 @@ namespace RumOverboard.Networking
 
         /// <summary>Interactable we're attached to (rail / helm / rope station), for hints + IK.</summary>
         public InteractableRef Attached;
+
+        /// <summary>Item in hands (WorldItem NetworkObject), default = none — HUD, prompts, presentation.</summary>
+        public NetworkId Carried;
 
         public PlayerState States
         {
@@ -176,18 +183,34 @@ namespace RumOverboard.Networking
             State.RagdollControl >= (config != null ? config.RagdollKnockoutThreshold : 0.85f) ||
             (ragdoll != null && ragdoll.IsPhysical);
 
-        public float Drunkenness => State.Drunkenness;
+        /// <summary>Intoxication 0..1 on every peer (crew attribute; 0 without one).</summary>
+        public float Drunkenness => CrewIntoxication.Get(_attributes != null ? _attributes.Set : null);
         public GameConfig Config => config;
+
+        /// <summary>Profile attributes (stamina, grog…). Replicated by NetworkAttributes; null if the prefab has none.</summary>
+        public AttributesComponent Attributes => _attributes;
+
+        /// <summary>Host-side stamina model (spend timer, last cost) — debug only.</summary>
+        public CrewStamina Stamina => _stamina;
+
+        /// <summary>Host-side: what stamina was charged for on the last tick — debug only.</summary>
+        public StaminaActivity LastStaminaActivity => _staminaActivity;
+
+        /// <summary>Stamina 0..1 on every peer (1 without a stamina attribute).</summary>
+        public float Stamina01 =>
+            _attributes != null && _attributes.Has(Attr.Stamina) ? _attributes.Set.GetNormalized(Attr.Stamina) : 1f;
+
+        public bool IsExhausted => _attributes != null && _attributes.HasFlag(AttrFlag.Exhausted);
 
         /// <summary>Host / debug: overwrite intoxication and ragdoll amount directly.</summary>
         public void DebugSetDrunkRagdoll(float drunkenness, float ragdoll)
         {
             if (!HasStateAuthority) return;
+            CrewIntoxication.Set(_attributes != null ? _attributes.Set : null, drunkenness);
             var s = State;
-            s.Drunkenness = Mathf.Clamp01(drunkenness);
             s.RagdollControl = Mathf.Clamp01(ragdoll);
             State = s;
-            if (_ctx != null) _ctx.Drunkenness = s.Drunkenness;
+            if (_ctx != null) _ctx.Drunkenness = Drunkenness;
         }
         public float RagdollControl => State.RagdollControl;
         public float ViewYaw => State.LookYaw;
@@ -223,6 +246,8 @@ namespace RumOverboard.Networking
             if (animator == null) animator = GetComponentInChildren<Animator>();
             if (jumpCollider == null) jumpCollider = GetComponent<JumpColliderDriver>();
             if (jumpCollider == null && _capsule != null) jumpCollider = gameObject.AddComponent<JumpColliderDriver>();
+            _attributes = GetComponent<AttributesComponent>();
+            _carry = new CrewCarry(GetComponentsInChildren<Collider>(true));
             _ocean = FindAnyObjectByType<OceanWaveField>();
 
             ConfigurePhysicsLayers();
@@ -275,6 +300,9 @@ namespace RumOverboard.Networking
 
             Debug.Log($"[NetworkPlayer] Spawned id={Object.Id} inputAuth={Object.InputAuthority} " +
                       $"stateAuth={HasStateAuthority} local={HasInputAuthority} mode={Runner.GameMode}");
+            if (HasStateAuthority && !CrewIntoxication.Has(_attributes != null ? _attributes.Set : null))
+                Debug.LogWarning("[NetworkPlayer] No Drunkenness attribute on the crew prefab — rum has no effect. " +
+                                 "Run RumOverboard ▸ Stamina ▸ Add Stamina to Player Prefab (Player profile).", this);
         }
 
         public override void Despawned(NetworkRunner runner, bool hasState)
@@ -283,6 +311,8 @@ namespace RumOverboard.Networking
             _waterTriggers.Clear();
             if (HasStateAuthority && _attached != null)
                 ReleaseStation(_attached);
+            if (HasStateAuthority && _carry != null && _carry.IsCarrying)
+                _carry.Release(_rb != null ? _rb.linearVelocity : Vector3.zero, Runner.SimulationTime);
             if (HasStateAuthority && _heldShip != null && _heldLine >= 0)
                 _heldShip.DropLine(_heldLine, Object.InputAuthority);
             _attached = null;
@@ -296,6 +326,16 @@ namespace RumOverboard.Networking
             if (!HasStateAuthority) return;
             var s = State;
             s.RagdollControl = 1f;
+            State = s;
+        }
+
+        /// <summary>Server-side blast (powder): a velocity kick and at least <paramref name="ragdoll"/> of ragdoll (1 = knocked out).</summary>
+        public void Shove(Vector3 velocityChange, float ragdoll)
+        {
+            if (!HasStateAuthority) return;
+            _rb.linearVelocity += velocityChange;
+            var s = State;
+            s.RagdollControl = Mathf.Max(s.RagdollControl, Mathf.Clamp01(ragdoll));
             State = s;
         }
 
@@ -402,12 +442,18 @@ namespace RumOverboard.Networking
             HandleAttachmentChanges(before, after, input);
             DriveStations(input);
             HandleRigging(input);
+            HandleItems(input, before, after, ref s);
+            StepStamina(input);
             UpdateCollisionMode();
             UpdatePlatform(ref s);
             if ((_machine.Active & (PlayerState.Climbing | PlayerState.Steering)) == 0)
                 ApplyLookDrivenBodyTurn();
 
-            s.Drunkenness = _ctx.Drunkenness;
+            // Intoxication lives in the crew attributes: sips raised ctx.Drunkenness, write it back, then sober up.
+            AttributeSet attributes = _attributes != null ? _attributes.Set : null;
+            CrewIntoxication.Set(attributes, _ctx.Drunkenness);
+            CrewIntoxication.Step(attributes, _machine.IsActive(PlayerState.DrinkingRum), Runner.DeltaTime);
+
             s.PlanarSpeed = _ctx.PlanarSpeed;
             s.LookYaw = _ctx.LookYaw;
             s.LookPitch = _ctx.LookPitch;
@@ -441,6 +487,7 @@ namespace RumOverboard.Networking
             _ctx.RagdollPressed = pressed.IsSet(NetworkInputData.ButtonRagdoll);
             _ctx.SprintHeld = input.Buttons.IsSet(NetworkInputData.ButtonSprint);
             _dropPressed = pressed.IsSet(NetworkInputData.ButtonDrop);
+            _throwPressed = pressed.IsSet(NetworkInputData.ButtonHaul);
             _ctx.ReleaseRequested = false;
 
             GroundProbeResult ground = GroundProbeService.Probe(transform, _rb, groundProbe, groundMask);
@@ -457,10 +504,215 @@ namespace RumOverboard.Networking
             _ctx.StepAhead = _ctx.IsGrounded && ProbeStep();
             ResolveTarget(input);
 
-            _ctx.Drunkenness = s.Drunkenness;
+            _ctx.Drunkenness = Drunkenness;
             _ctx.DeltaTime = Runner.DeltaTime;
             _ctx.Time = Runner.SimulationTime;
+
+            StaminaGates gates = CrewStamina.GatesFor(_attributes != null ? _attributes.Set : null);
+            _ctx.CanSprint = gates.CanSprint;
+            _ctx.CanJump = gates.CanJump;
+            _ctx.StaminaSpeedFactor = gates.SpeedFactor;
+            _ctx.Sprinting = false;
+            _ctx.Jumped = false;
+            ApplyCarryToContext();
         }
+
+        // ---- Stamina (GDD §13.4) — charged for what actually happened this tick ----------------
+        private readonly CrewStamina _stamina = new();
+        private StaminaActivity _staminaActivity;
+        private AttributesComponent _attributes;
+
+        private void StepStamina(NetworkInputData input)
+        {
+            if (_attributes == null || _attributes.Set == null)
+                return;
+
+            bool grounded = _machine.IsActive(PlayerState.Grounded);
+            bool climbing = _machine.IsActive(PlayerState.Climbing);
+            bool moving = _ctx.Move.sqrMagnitude > 0.01f;
+            float load = _heldShip != null ? _heldShip.GetLineLoad(_heldLine) : 0f;
+            bool haulHeld = input.Buttons.IsSet(NetworkInputData.ButtonHaul);
+
+            _staminaActivity = new StaminaActivity
+            {
+                Sprinting = _ctx.Sprinting && grounded,
+                Jumped = _ctx.Jumped,
+                Climbing = climbing && moving,
+                ClimbSprint = climbing && _ctx.Sprinting,
+                Swimming = _machine.IsActive(PlayerState.Swimming),
+                SwimEffort = Mathf.Clamp01(_ctx.Move.magnitude),
+                // GDD: "moving while holding a loaded rope" — hauling always, walking only with real load.
+                Hauling = _heldShip != null && (haulHeld || (moving && load > 0.3f)),
+                LineLoad = load,
+                Carrying = _carry != null && _carry.IsCarrying && moving,
+                CarryLoad = CarryLoad(),
+            };
+            _stamina.Step(_attributes.Set, _staminaActivity, Runner.DeltaTime);
+        }
+
+        // ---- Items in hands (GDD §26.3): one at a time. E picks up / stores / takes out, G puts down,
+        //      LMB throws, Q uses (a sip from a bottle; spyglass / compass are local presentation) ----
+        private CrewCarry _carry;
+        private bool _throwPressed;
+        private float _holdReach = 0.8f;
+
+        /// <summary>Item in hands on every peer (replicated id), default = none.</summary>
+        public NetworkId CarriedId => State.Carried;
+
+        /// <summary>The item in hands, resolved on any peer (null = hands free).</summary>
+        public WorldItem CarriedItem =>
+            State.Carried.IsValid && Runner != null && Runner.TryFindObject(State.Carried, out NetworkObject o) && o != null
+                ? o.GetComponent<WorldItem>() : null;
+
+        /// <summary>Host-side carry model (tests / debug).</summary>
+        public CrewCarry Carry => _carry;
+
+        /// <summary>Heaviest item this crew member can lift (CarryCapacity attribute, replicated).</summary>
+        public float CarryCapacity => _attributes != null ? _attributes.Get(Attr.CarryCapacity, 60f) : 60f;
+
+        private WorldItem HeldItem => _carry != null ? _carry.Item : null;
+
+        private float CarryLoad()
+        {
+            WorldItem item = HeldItem;
+            return item == null ? 0f : ItemRules.CarryLoad(item.Mass, CarryCapacity);
+        }
+
+        // Before the state machine runs: weight slows walking / swimming and can forbid jumping; a bottle allows a sip.
+        private void ApplyCarryToContext()
+        {
+            _ctx.CarrySpeedFactor = 1f;
+            _ctx.CanDrink = false;
+            _ctx.SipIntoxication = 0f;
+            WorldItem item = HeldItem;
+            if (item == null) return;
+
+            float load = CarryLoad();
+            _ctx.CarrySpeedFactor = ItemRules.CarrySpeedFactor(load);
+            _ctx.CanJump &= ItemRules.CanJumpWithLoad(load);
+
+            DrinkData drink = item.Attributes.GetData<DrinkData>();
+            if (drink != null && item.Attributes.GetCurrent(Attr.Sips) >= 1f)
+            {
+                _ctx.CanDrink = true;
+                _ctx.SipIntoxication = drink.IntoxicationPerSip;
+            }
+        }
+
+        private void HandleItems(NetworkInputData input, PlayerState before, PlayerState after, ref PlayerNetState s)
+        {
+            float now = Runner.SimulationTime;
+            _carry.Tick(now);
+            WorldItem item = _carry.Item;
+
+            // The item is the source of truth: broken / stored / despawned / taken → hands are empty.
+            if (item != null && (item.Object == null || !item.Object.IsValid || item.Broken || item.IsStored ||
+                                 item.Holder != Object.InputAuthority))
+            {
+                _carry.Forget();
+                StopCarrying();
+                item = null;
+            }
+
+            // A sip started this tick: one charge of the bottle, grog (sanity reserve) back to the drinker.
+            if (item != null && (after & ~before & PlayerState.DrinkingRum) != 0)
+            {
+                item.Attributes.Set?.AddCurrent(Attr.Sips, -1f);
+                DrinkData drink = item.Attributes.GetData<DrinkData>();
+                if (drink != null && _attributes != null && _attributes.Set != null)
+                    _attributes.Set.AddCurrent(Attr.Grog, drink.GrogPerSip);
+            }
+
+            bool canAct = _ctx.ControlAuthority > 0.5f && (_machine.Active & (PlayerState.Climbing | PlayerState.Steering)) == 0;
+            Vector3 velocity = _rb.linearVelocity;
+
+            if (item != null)
+            {
+                if (!canAct || _dropPressed)
+                {
+                    _carry.Release(velocity, now); // put down / knocked out: it simply falls
+                    StopCarrying();
+                }
+                else if (_throwPressed)
+                {
+                    Vector3 view = Quaternion.Euler(_ctx.LookPitch, _ctx.LookYaw, 0f) * Vector3.forward;
+                    Vector3 dir = (view + Vector3.up * 0.15f).normalized;
+                    float impulse = _attributes != null ? _attributes.Get(Attr.ThrowImpulse, 60f) : 60f;
+                    _carry.Release(velocity + dir * ItemRules.ThrowSpeed(impulse, item.Mass), now);
+                    StopCarrying();
+                }
+                else if (_ctx.DrinkPressed && item.Attributes.GetData<BucketData>() != null)
+                {
+                    // Q with a bucket: splash it ahead (puts fire out, soaks) — Fire feature.
+                    Vector3 view = Quaternion.Euler(0f, _ctx.LookYaw, 0f) * Vector3.forward;
+                    FireDirector.Splash(item, transform.position, view);
+                    _carry.Drive(HoldPoint(), HoldRotation(), velocity, Runner.DeltaTime);
+                }
+                else if (_ctx.InteractPressed && _target is WaterSourceInteractable cask &&
+                         FireDirector.Fill(item, cask.Item))
+                {
+                    _carry.Drive(HoldPoint(), HoldRotation(), velocity, Runner.DeltaTime);
+                }
+                else if (_ctx.InteractPressed && _target is StorageInteractable box && box.Storage != null &&
+                         box.Storage.TryStore(item))
+                {
+                    _carry.Forget();
+                    StopCarrying();
+                }
+                else if (!_carry.Drive(HoldPoint(), HoldRotation(), velocity, Runner.DeltaTime))
+                {
+                    _carry.Release(item.Body.linearVelocity, now); // snagged on something: slips out
+                    StopCarrying();
+                }
+            }
+            else if (_ctx.InteractPressed && canAct && _heldShip == null)
+            {
+                if (_target is ItemInteractable pick && pick.Item != null &&
+                    pick.IsAvailable(Interactor(CameraAnchor.position, transform.position)))
+                {
+                    StartCarrying(pick.Item, snapToHands: false);
+                }
+                else if (_target is StorageInteractable box && box.Storage != null && box.Storage.Count > 0)
+                {
+                    WorldItem taken = box.Storage.TakeLast();
+                    if (taken != null) StartCarrying(taken, snapToHands: true);
+                }
+            }
+
+            s.Carried = _carry.Item != null ? _carry.Item.Object.Id : default;
+        }
+
+        private void StartCarrying(WorldItem item, bool snapToHands)
+        {
+            // Hold distance from the item's size, measured once (bounds change as it rotates).
+            _holdReach = 0.45f + Mathf.Min(item.WorldBounds.extents.magnitude, 1.6f);
+            _carry.PickUp(item, Object.InputAuthority, HoldPoint(), snapToHands);
+            _machine.ForceActivate(PlayerState.Carrying, _ctx);
+        }
+
+        private void StopCarrying() => _machine.Deactivate(PlayerState.Carrying, _ctx);
+
+        /// <summary>Host / debug: put <paramref name="item"/> straight into this crew member's hands (drops what's held).</summary>
+        public void DebugGiveItem(WorldItem item)
+        {
+            if (!HasStateAuthority || item == null || item.Object == null || !item.Object.IsValid || item.Broken) return;
+            if (_carry.IsCarrying)
+            {
+                _carry.Release(_rb.linearVelocity, Runner.SimulationTime);
+                StopCarrying();
+            }
+            if (item.IsStored) item.SetContainer(default);
+            StartCarrying(item, snapToHands: true);
+            var s = State;
+            s.Carried = item.Object.Id;
+            State = s;
+        }
+
+        // Chest height in front of the crew member along the view yaw.
+        private Vector3 HoldPoint() =>
+            transform.position + Vector3.up * 1.1f + Quaternion.Euler(0f, _ctx.LookYaw, 0f) * Vector3.forward * _holdReach;
+
+        private Quaternion HoldRotation() => Quaternion.Euler(0f, _ctx.LookYaw, 0f);
 
         private Rigidbody _groundBody;
         private NetworkInputData _lastInput;
@@ -649,9 +901,9 @@ namespace RumOverboard.Networking
             {
                 int line = ship != null && ship.Object != null && ship.Object.IsValid ? ship.LineHeldBy(me) : -1;
                 if (line >= 0)
-                    return new InteractorInfo(me, eye, feet, line, ship);
+                    return new InteractorInfo(me, eye, feet, line, ship, State.Carried, CarryCapacity);
             }
-            return new InteractorInfo(me, eye, feet);
+            return new InteractorInfo(me, eye, feet, -1, null, State.Carried, CarryCapacity);
         }
 
         // While glued to a rail the motor owns the body: drop collisions so yards, platforms and
@@ -704,7 +956,7 @@ namespace RumOverboard.Networking
             float recover = config != null ? config.RagdollRecoverRate : 0.4f;
 
             // Intoxication sets a floppy baseline; knockouts spike to 1 and recover down to it.
-            float baseline = s.Drunkenness * influence;
+            float baseline = Drunkenness * influence;
             float decayed = s.RagdollControl - recover * Runner.DeltaTime;
             s.RagdollControl = Mathf.Clamp01(Mathf.Max(baseline, decayed));
         }
@@ -768,7 +1020,7 @@ namespace RumOverboard.Networking
         {
             var s = State;
             _ctx.PlanarSpeed = s.PlanarSpeed;
-            _ctx.Drunkenness = s.Drunkenness;
+            _ctx.Drunkenness = Drunkenness;
             _ctx.LookYaw = s.LookYaw;
             _ctx.LookPitch = s.LookPitch;
             _ctx.Animator = animator;

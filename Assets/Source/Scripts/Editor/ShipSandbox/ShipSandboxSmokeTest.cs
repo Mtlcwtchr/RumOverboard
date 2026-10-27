@@ -25,6 +25,17 @@ namespace RumOverboard.EditorTools.ShipSandbox
             EditorApplication.EnterPlaymode();
         }
 
+        /// <summary>Same offline scenario inside the open editor (no -sandboxSmoke flag, no editor exit).</summary>
+        [MenuItem("RumOverboard/Ship Sandbox/Run Smoke Test (in editor)", priority = 40)]
+        public static void RunInEditor()
+        {
+            if (EditorApplication.isPlaying) return;
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo()) return;
+            EditorSceneManager.OpenScene(ShipSandboxSetup.ScenePath);
+            SessionState.SetBool(RumOverboard.Gameplay.Diagnostics.SandboxSmokeTest.InEditorKey, true);
+            EditorApplication.EnterPlaymode();
+        }
+
         public static void BuildPlayer()
         {
             string[] args = Environment.GetCommandLineArgs();

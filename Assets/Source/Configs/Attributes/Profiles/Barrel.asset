@@ -1,0 +1,51 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 237068c801a475340a8c839ce1eb23b2, type: 3}
+  m_Name: Barrel
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributeProfile
+  parent: {fileID: 0}
+  attributes:
+  - Attribute: {fileID: 11400000, guid: 833a5d79bb227cf4d87c442c4d38220c, type: 2}
+    BaseValue: 40
+  - Attribute: {fileID: 11400000, guid: b39c45145735d7c4e8f7106b4e45e05a, type: 2}
+    BaseValue: 30
+  - Attribute: {fileID: 11400000, guid: 430f3b496a158ea449c35eb4f3815874, type: 2}
+    BaseValue: 6
+  - Attribute: {fileID: 11400000, guid: be159e9d4cf7f864193fa9be48e9d5d4, type: 2}
+    BaseValue: 4
+  flags:
+  - {fileID: 11400000, guid: b18bfe04e2de83e499e3fde8fdfdd416, type: 2}
+  - {fileID: 11400000, guid: 1e43b1c88a54892458640249284fd46a, type: 2}
+  - {fileID: 11400000, guid: acc05281813b9794798bc60b92d7797d, type: 2}
+  data:
+  - rid: 286333917259628627
+  - rid: 286333917259628628
+  - rid: 286333917259628629
+  references:
+    version: 2
+    RefIds:
+    - rid: 286333917259628627
+      type: {class: DisplayData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        DisplayName: "\u0411\u043E\u0447\u043A\u0430"
+        Description: 
+    - rid: 286333917259628628
+      type: {class: FlammableData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        IgnitionTime: 3
+        SpreadRadius: 1.5
+        FireVfx: {fileID: 0}
+    - rid: 286333917259628629
+      type: {class: BreakableData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        DebrisPrefab: {fileID: 0}
+        BreakSound: {fileID: 0}

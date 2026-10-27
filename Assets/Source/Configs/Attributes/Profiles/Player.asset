@@ -1,0 +1,61 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 237068c801a475340a8c839ce1eb23b2, type: 3}
+  m_Name: Player
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributeProfile
+  parent: {fileID: 0}
+  attributes:
+  - Attribute: {fileID: 11400000, guid: 96abd2fb8196bf44f9fb54fe611643a5, type: 2}
+    BaseValue: 100
+  - Attribute: {fileID: 11400000, guid: b7404b7cdc4bcef43baf42f8c70b3769, type: 2}
+    BaseValue: 100
+  - Attribute: {fileID: 11400000, guid: 833a5d79bb227cf4d87c442c4d38220c, type: 2}
+    BaseValue: 80
+  - Attribute: {fileID: 11400000, guid: d1b23b3ceb2fa0a488764df2353f5dd7, type: 2}
+    BaseValue: 12
+  - Attribute: {fileID: 11400000, guid: bfb5bf5946dce6146ad088f8e936ee13, type: 2}
+    BaseValue: 1
+  - Attribute: {fileID: 11400000, guid: da31e13e04d536646a63f679ce3b8e0d, type: 2}
+    BaseValue: 30
+  - Attribute: {fileID: 11400000, guid: ac50966a660f85b438117bd99f6564a1, type: 2}
+    BaseValue: 10
+  - Attribute: {fileID: 11400000, guid: 93b91a5ddb176af4cb92035e8b05e408, type: 2}
+    BaseValue: 8
+  - Attribute: {fileID: 11400000, guid: fe8a119d764affb44820a0626a527b53, type: 2}
+    BaseValue: 6
+  - Attribute: {fileID: 11400000, guid: e0232e45f7963984786ab5b9e36dcd16, type: 2}
+    BaseValue: 5
+  - Attribute: {fileID: 11400000, guid: 2725eea92b669ae4cb093758ccadd85f, type: 2}
+    BaseValue: 8
+  - Attribute: {fileID: 11400000, guid: 42a1ffa254cbca84eab6d641605b100e, type: 2}
+    BaseValue: 0.5
+  - Attribute: {fileID: 11400000, guid: d0fe4e0d340d4414aa2d6ca60228be29, type: 2}
+    BaseValue: 1
+  - Attribute: {fileID: 11400000, guid: 652dfbb6fc0a0694ab2b6c839bc893e9, type: 2}
+    BaseValue: 0
+  - Attribute: {fileID: 11400000, guid: 2b6127d6c92ddd8478d83a704ecbde8d, type: 2}
+    BaseValue: 60
+  - Attribute: {fileID: 11400000, guid: 6a3dc18894fb49945aeedf8d0a090c6a, type: 2}
+    BaseValue: 60
+  - Attribute: {fileID: 11400000, guid: d2f63607103b15448954454c96cd02e9, type: 2}
+    BaseValue: 6
+  flags: []
+  data:
+  - rid: 286333917259628626
+  references:
+    version: 2
+    RefIds:
+    - rid: 286333917259628626
+      type: {class: DisplayData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        DisplayName: Sailor
+        Description: 

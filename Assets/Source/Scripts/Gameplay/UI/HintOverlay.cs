@@ -71,7 +71,9 @@ namespace RumOverboard.Gameplay.UI
             }
             Instance = this;
             Build();
-            SetPrompt(null, false);
+            // Not SetPrompt(null): it skips when nothing changed (null == initial _lastPrompt) and the freshly
+            // built prompt would stay up — an empty box until the first thing you look at.
+            _promptRoot.SetActive(false);
         }
 
         private void OnDestroy()
@@ -154,6 +156,65 @@ namespace RumOverboard.Gameplay.UI
             _drunkFill.rectTransform.offsetMin = new Vector2(2f, 2f);
             _drunkFill.rectTransform.offsetMax = new Vector2(-2f, -2f);
             SetDrunkenness(0f);
+        }
+
+        private GameObject _staminaRoot;
+        private Image _staminaFill;
+        private Text _staminaLabel;
+        private float _lastStamina = -1f;
+        private bool _lastExhausted;
+
+        /// <summary>Stamina 0..1 → bottom-centre bar; red while exhausted. <paramref name="visible"/> false hides it.</summary>
+        public void SetStamina(float value, bool exhausted, bool visible)
+        {
+            if (_staminaRoot == null)
+                return;
+            if (_staminaRoot.activeSelf != visible)
+                _staminaRoot.SetActive(visible);
+            value = Mathf.Clamp01(value);
+            if (!visible || (Mathf.Abs(value - _lastStamina) < 0.002f && exhausted == _lastExhausted))
+                return;
+            _lastStamina = value;
+            _lastExhausted = exhausted;
+            _staminaFill.rectTransform.anchorMax = new Vector2(value, 1f);
+            _staminaFill.color = exhausted
+                ? new Color(0.9f, 0.25f, 0.2f)
+                : Color.Lerp(new Color(0.95f, 0.75f, 0.2f), new Color(0.35f, 0.8f, 0.95f), value);
+            _staminaLabel.text = exhausted ? "ВЫДОХСЯ" : $"СИЛЫ  {Mathf.RoundToInt(value * 100f)}%";
+        }
+
+        private void BuildStaminaMeter(Font font)
+        {
+            _staminaRoot = new GameObject("StaminaMeter", typeof(RectTransform));
+            _staminaRoot.transform.SetParent(transform, false);
+            var rt = (RectTransform)_staminaRoot.transform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = new Vector2(0f, 24f);
+            rt.sizeDelta = new Vector2(360f, 44f);
+
+            _staminaLabel = NewText("Label", rt, font, 16, TextAnchor.UpperCenter);
+            _staminaLabel.rectTransform.anchorMin = new Vector2(0f, 1f);
+            _staminaLabel.rectTransform.anchorMax = new Vector2(1f, 1f);
+            _staminaLabel.rectTransform.pivot = new Vector2(0.5f, 1f);
+            _staminaLabel.rectTransform.sizeDelta = new Vector2(0f, 20f);
+            _staminaLabel.rectTransform.anchoredPosition = Vector2.zero;
+            _staminaLabel.gameObject.AddComponent<Shadow>().effectColor = new Color(0f, 0f, 0f, 0.8f);
+
+            var back = NewGraphic<Image>("Back", rt);
+            back.color = new Color(0f, 0f, 0f, 0.5f);
+            back.rectTransform.anchorMin = Vector2.zero;
+            back.rectTransform.anchorMax = new Vector2(1f, 0f);
+            back.rectTransform.pivot = Vector2.zero;
+            back.rectTransform.sizeDelta = new Vector2(0f, 14f);
+            back.rectTransform.anchoredPosition = Vector2.zero;
+
+            _staminaFill = NewGraphic<Image>("Fill", back.transform);
+            _staminaFill.rectTransform.anchorMin = Vector2.zero;
+            _staminaFill.rectTransform.anchorMax = new Vector2(1f, 1f);
+            _staminaFill.rectTransform.offsetMin = new Vector2(2f, 2f);
+            _staminaFill.rectTransform.offsetMax = new Vector2(-2f, -2f);
+            SetStamina(1f, false, true);
+            _staminaRoot.SetActive(false); // shown once a crew member with stamina is followed
         }
 
         /// <summary>Strain of what you're holding (wheel / rope): 0 hides the meter, ≥1 = can't hold it.</summary>
@@ -298,6 +359,7 @@ namespace RumOverboard.Gameplay.UI
 
             BuildDrunkMeter(font);
             BuildStrainMeter(font);
+            BuildStaminaMeter(font);
         }
 
         private static T NewGraphic<T>(string name, Transform parent) where T : Graphic

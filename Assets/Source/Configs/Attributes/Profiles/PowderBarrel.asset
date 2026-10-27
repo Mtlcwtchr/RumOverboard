@@ -1,0 +1,42 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 237068c801a475340a8c839ce1eb23b2, type: 3}
+  m_Name: PowderBarrel
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributeProfile
+  parent: {fileID: 11400000, guid: 0309ca9452733974eb5cb6f5ef37827a, type: 2}
+  attributes:
+  - Attribute: {fileID: 11400000, guid: 833a5d79bb227cf4d87c442c4d38220c, type: 2}
+    BaseValue: 60
+  - Attribute: {fileID: 11400000, guid: b39c45145735d7c4e8f7106b4e45e05a, type: 2}
+    BaseValue: 15
+  flags: []
+  data:
+  - rid: 286333917259628630
+  - rid: 286334187977834585
+  references:
+    version: 2
+    RefIds:
+    - rid: 286333917259628630
+      type: {class: DisplayData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        DisplayName: "\u0411\u043E\u0447\u043A\u0430 \u0441 \u043F\u043E\u0440\u043E\u0445\u043E\u043C"
+        Description: Explodes when it burns.
+    - rid: 286334187977834585
+      type: {class: ExplosiveData, ns: RumOverboard.Gameplay.Fire, asm: Assembly-CSharp}
+      data:
+        FuseTime: 2.5
+        Radius: 4
+        Damage: 120
+        IgniteFraction: 0.6
+        ItemPush: 9
+        KnockoutRadius: 2.5
+        CrewPush: 7

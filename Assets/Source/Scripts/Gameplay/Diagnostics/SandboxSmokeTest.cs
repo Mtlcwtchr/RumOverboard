@@ -38,10 +38,18 @@ namespace RumOverboard.Gameplay.Diagnostics
         private bool _hasLast;
         private readonly List<float> _renderSteps = new();
 
+        /// <summary>SessionState key set by the in-editor menu (Ship Sandbox ▸ Run Smoke Test (in editor)).</summary>
+        public const string InEditorKey = "RumOverboard.SandboxSmoke.InEditor";
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         private static void Boot()
         {
-            if (!Environment.GetCommandLineArgs().Contains(Flag))
+            bool inEditor = false;
+#if UNITY_EDITOR
+            inEditor = UnityEditor.SessionState.GetBool(InEditorKey, false);
+            UnityEditor.SessionState.SetBool(InEditorKey, false);
+#endif
+            if (!inEditor && !Environment.GetCommandLineArgs().Contains(Flag))
                 return;
             var cm = FindAnyObjectByType<ConnectionManager>();
             cm?.OverrideAutoStart(GameMode.Single);
@@ -572,7 +580,10 @@ namespace RumOverboard.Gameplay.Diagnostics
             _report.AppendLine(_failures.Count == 0 ? "RESULT: ALL PASSED" : $"RESULT: {_failures.Count} FAILED");
             Debug.Log("[SandboxSmoke]\n" + _report);
 #if UNITY_EDITOR
-            UnityEditor.EditorApplication.Exit(_failures.Count == 0 ? 0 : 1);
+            if (Application.isBatchMode)
+                UnityEditor.EditorApplication.Exit(_failures.Count == 0 ? 0 : 1);
+            else
+                UnityEditor.EditorApplication.isPlaying = false; // in-editor run: keep the editor open
 #endif
         }
     }

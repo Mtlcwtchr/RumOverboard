@@ -362,7 +362,7 @@ namespace Source.Scripts.Editor
             so.ApplyModifiedProperties();
         }
 
-        private static void SetNetworkPrefabRef(SerializedProperty prefabRefProperty, NetworkObject prefab)
+        internal static void SetNetworkPrefabRef(SerializedProperty prefabRefProperty, NetworkObject prefab)
         {
             var prefabGuid = NetworkObjectEditor.GetPrefabGuid(prefab);
             var fusionEditorAssembly = typeof(NetworkObjectEditor).Assembly;

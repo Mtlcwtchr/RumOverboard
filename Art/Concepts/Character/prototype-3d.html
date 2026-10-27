@@ -1,0 +1,948 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Конструктор матроса</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600&family=Unbounded:wght@600;800&display=swap">
+<style>
+/* Layout: one-screen workbench. Live 3D deck on the left, customization drawer on the right; on phones the deck sits on top and the drawer scrolls below. */
+:root{
+  --bg:#EFE9DD; --panel:#FAF7F1; --fg:#1F2630; --muted:#6A6458; --line:#E0D7C6; --chip:#F1EBDF;
+  --accent:#C9502F; --accent-fg:#FFFFFF; --ring:#1F2630;
+  --hud-bg:rgba(255,253,248,.92); --hud-fg:#2B2233; --hud-ink:#2B2233; --hud-hot:#E8643F;
+  --display:'Unbounded','Arial Black',system-ui,sans-serif;
+  --body:'Onest',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --mono:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --bg:#12161B; --panel:#191E25; --fg:#ECE6DA; --muted:#A39C8E; --line:#2B323C; --chip:#222932; --accent:#F07A55; --accent-fg:#1A1206; --ring:#ECE6DA; color-scheme:dark }
+}
+:root[data-theme="dark"]{ --bg:#12161B; --panel:#191E25; --fg:#ECE6DA; --muted:#A39C8E; --line:#2B323C; --chip:#222932; --accent:#F07A55; --accent-fg:#1A1206; --ring:#ECE6DA; color-scheme:dark }
+
+html{height:100%;box-sizing:border-box}
+*,*::before,*::after{box-sizing:inherit}
+body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14px;line-height:1.45;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.app{height:100%;display:grid;grid-template-columns:minmax(0,1fr) 360px}
+
+/* Stage */
+.stage{position:relative;min-width:0;min-height:0;overflow:hidden;background:#BFE6F2}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none}
+.hud{position:absolute;display:flex;gap:8px;flex-wrap:wrap;pointer-events:none}
+.hud > *{pointer-events:auto}
+.hud.top{top:14px;left:max(14px, env(safe-area-inset-left,0px));right:14px;align-items:center}
+.hud.bottom{bottom:16px;left:max(14px, env(safe-area-inset-left,0px));right:14px;justify-content:center}
+.pill{display:inline-flex;align-items:center;gap:8px;padding:7px 12px;border-radius:999px;background:var(--hud-bg);color:var(--hud-fg);font-weight:600;font-size:13px;box-shadow:0 0 0 2px var(--hud-ink)}
+.pill .dot{width:9px;height:9px;border-radius:50%;background:#3FA36B;box-shadow:0 0 0 2px var(--hud-ink)}
+.pill[data-mode="ragdoll"] .dot{background:var(--hud-hot)}
+.pill[data-mode="getup"] .dot{background:#F2C14E}
+.pill.subtle{font-weight:500;font-variant-numeric:tabular-nums}
+.hint{margin:0;font-size:12.5px;color:var(--hud-fg);background:var(--hud-bg);padding:6px 11px;border-radius:999px;margin-left:auto}
+.act{border:0;border-radius:14px;padding:11px 16px;min-height:44px;font-weight:600;font-size:14px;background:var(--hud-bg);color:var(--hud-fg);box-shadow:0 0 0 2.5px var(--hud-ink),0 4px 0 2.5px var(--hud-ink);transition:transform .08s ease, box-shadow .08s ease}
+.act:hover{transform:translateY(-1px)}
+.act:active{transform:translateY(3px);box-shadow:0 0 0 2.5px var(--hud-ink),0 1px 0 2.5px var(--hud-ink)}
+.act.hot{background:var(--hud-hot);color:#FFFFFF}
+.act .short{display:none}
+@media (max-width: 760px){ .act .short{display:inline} }
+.loading[hidden]{display:none}
+.loading{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--display);font-weight:600;font-size:15px;color:var(--hud-fg);background:#BFE6F2;text-align:center;padding:24px}
+
+/* Panel */
+.panel{min-width:0;min-height:0;overflow-y:auto;background:var(--panel);border-left:1px solid var(--line);padding-block:24px 32px;padding-left:24px;padding-right:max(24px, env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+.brand{display:flex;flex-direction:column;gap:6px}
+.brand-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.brand h1{margin:0;font-family:var(--display);font-weight:800;font-size:26px;letter-spacing:-.01em;text-wrap:balance}
+.brand .tag{font-family:var(--mono);font-size:11px;color:var(--muted);white-space:nowrap}
+.brand p{margin:0;color:var(--muted);font-size:13.5px;max-width:42ch}
+.controls{display:flex;flex-direction:column;gap:18px}
+.group{display:flex;flex-direction:column;gap:9px;border:0;margin:0;padding:0;min-width:0}
+.label{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1.5px solid var(--line);background:var(--chip);border-radius:999px;padding:7px 13px;min-height:36px;font-size:13.5px;font-weight:500;transition:background .12s ease,color .12s ease,border-color .12s ease}
+.chip:hover{border-color:var(--fg)}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--panel);border-color:var(--fg)}
+.swatches{display:flex;flex-wrap:wrap;gap:9px}
+.sw{width:32px;height:32px;border-radius:50%;border:2px solid #2B2233;padding:0;box-shadow:0 0 0 0 var(--ring);transition:box-shadow .12s ease}
+.sw[aria-pressed="true"]{box-shadow:0 0 0 3px var(--panel),0 0 0 5px var(--ring)}
+.divider{height:1px;background:var(--line)}
+.slider{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center}
+.slider label{font-size:13.5px;font-weight:500}
+.slider output{font-family:var(--mono);font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.slider input{grid-column:1 / -1;width:100%;accent-color:var(--accent);min-height:28px}
+.cta{display:flex;gap:8px;flex-wrap:wrap}
+.btn{border-radius:12px;padding:11px 16px;min-height:44px;font-weight:600;border:1.5px solid var(--line);background:transparent}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent);flex:1 1 auto}
+.btn:hover{border-color:var(--fg)}
+.btn.primary:hover{filter:brightness(1.06)}
+.note{margin:0;font-size:12.5px;color:var(--muted);max-width:44ch}
+
+@media (max-width: 760px){
+  .app{grid-template-columns:1fr;grid-template-rows:minmax(320px,54%) minmax(0,1fr)}
+  .panel{border-left:0;border-top:1px solid var(--line);padding-left:max(16px, env(safe-area-inset-left,0px));padding-right:max(16px, env(safe-area-inset-right,0px));padding-block:18px 28px}
+  .hint{display:none}
+  .act{padding:8px 12px;font-size:13px;min-height:40px}
+  .act .long{display:none}
+  .hud.bottom{bottom:12px;gap:8px;flex-wrap:nowrap}
+}
+@media (prefers-reduced-motion: reduce){ .act,.chip,.sw{transition:none} }
+</style>
+
+<div class="app">
+  <section class="stage" id="stage" aria-label="3D-сцена: палуба корабля с персонажем">
+    <div class="loading" id="loading">Поднимаю паруса…</div>
+    <div class="hud top">
+      <span class="pill" id="status" data-mode="idle"><i class="dot"></i><span id="statusText">Стоит на палубе</span></span>
+      <span class="pill subtle" id="falls">Падений: 0</span>
+      <p class="hint">Крути сцену мышкой · клик по матросу толкает его</p>
+    </div>
+    <div class="hud bottom" role="toolbar" aria-label="Рагдолл">
+      <button class="act hot" data-act="slip" type="button" aria-label="Поскользнуться"><span class="long">Поскользнуться</span><span class="short">Упасть</span></button>
+      <button class="act" data-act="wave" type="button">Волна</button>
+      <button class="act" data-act="toss" type="button" aria-label="Подбросить"><span class="long">Подбросить</span><span class="short">Вверх</span></button>
+      <button class="act" data-act="getup" type="button">Встать</button>
+    </div>
+  </section>
+
+  <aside class="panel" aria-label="Кастомизация">
+    <div class="brand">
+      <div class="brand-row"><h1>Матрос</h1><span class="tag">прототип · v0.1</span></div>
+      <p>Один базовый персонаж и слоты кастомизации. Всё собрано из простых форм, чтобы рагдолл болтал ими смешно.</p>
+    </div>
+    <div class="controls" id="controls"></div>
+    <div class="divider"></div>
+    <div class="cta">
+      <button class="btn primary" id="random" type="button">Случайный матрос</button>
+      <button class="btn" id="reset" type="button">Сбросить</button>
+    </div>
+    <p class="note">Тяжёлая голова и короткие ножки держат центр тяжести высоко, поэтому матрос охотно падает. Шляпа и предмет в руке отлетают отдельными телами.</p>
+  </aside>
+</div>
+
+<script>
+(function(){
+  var OPTIONS = {
+    species: [['bun','Булочка'],['otter','Выдра'],['duck','Утка'],['squid','Кальмар']],
+    hat: [['none','Без шляпы'],['captain','Фуражка'],['souwester','Зюйдвестка'],['beanie','Бини'],['tricorne','Треуголка'],['bandana','Бандана']],
+    outfit: [['stripes','Тельняшка'],['raincoat','Дождевик'],['overalls','Комбинезон'],['sweater','Свитер']],
+    eyes: [['round','Круглые'],['sleepy','Сонные'],['dots','Точки']],
+    beard: [['none','Без'],['full','Борода'],['mustache','Усы']],
+    item: [['none','Пусто'],['mug','Кружка'],['rod','Удочка'],['wrench','Ключ'],['spyglass','Подзорная труба']]
+  };
+  var LABELS = { species:'Вид', hat:'Головной убор', outfit:'Одежда', eyes:'Глаза', beard:'Борода', item:'В руке' };
+  var COLORS = {
+    skin: [['#F6C9A4','персиковый'],['#D99A72','загорелый'],['#9A6746','каштановый мех'],['#FFFDF7','белые перья'],['#A36BC0','фиолетовый'],['#7FC4A8','мятный']],
+    cloth: [['#34507A','морской синий'],['#2F8A92','бирюзовый'],['#C0453A','кирпичный'],['#E8B04A','горчичный'],['#6C8C4A','оливковый'],['#3A3540','графит']],
+    accent: [['#E86A4A','коралловый'],['#F6C93A','жёлтый'],['#4677B0','синий'],['#E68AB0','розовый'],['#FFFDF8','молочный'],['#2B2A33','чёрный']],
+    hair: [['#F4EFE6','седой'],['#C9B79C','пшеничный'],['#7A4E32','каштановый'],['#2B2233','чёрный'],['#E07A3C','рыжий']]
+  };
+  var COLOR_LABELS = { skin:'Кожа / мех', cloth:'Одежда', accent:'Акцент: шляпа, кружка', hair:'Борода и усы' };
+  var SPECIES_SKIN = { bun:'#F6C9A4', otter:'#9A6746', duck:'#FFFDF7', squid:'#A36BC0' };
+  var DEFAULTS = { species:'bun', hat:'captain', outfit:'stripes', eyes:'round', beard:'full', item:'mug', skin:'#F6C9A4', cloth:'#34507A', accent:'#E86A4A', hair:'#F4EFE6', plump:1, head:1.1 };
+  var state = Object.assign({}, DEFAULTS);
+
+  var S = window.SAILOR = {
+    state: state, subs: [], act: null,
+    notify: function(){ for (var i = 0; i < this.subs.length; i++) this.subs[i](state); },
+    status: function(mode, falls){
+      var el = document.getElementById('status');
+      el.dataset.mode = mode;
+      document.getElementById('statusText').textContent = mode === 'ragdoll' ? 'Рагдолл!' : mode === 'getup' ? 'Встаёт' : 'Стоит на палубе';
+      document.getElementById('falls').textContent = 'Падений: ' + falls;
+    }
+  };
+
+  var html = '';
+  Object.keys(OPTIONS).forEach(function(key){
+    html += '<div class="group" role="group" aria-labelledby="lbl-' + key + '"><span class="label" id="lbl-' + key + '">' + LABELS[key] + '</span><div class="chips">';
+    OPTIONS[key].forEach(function(o){ html += '<button type="button" class="chip" id="opt-' + key + '-' + o[0] + '" data-key="' + key + '" data-val="' + o[0] + '" aria-pressed="false">' + o[1] + '</button>'; });
+    html += '</div></div>';
+    if (key === 'outfit') html += '<div class="divider"></div>';
+  });
+  html += '<div class="divider"></div>';
+  Object.keys(COLORS).forEach(function(key){
+    html += '<div class="group" role="group" aria-labelledby="lbl-' + key + '"><span class="label" id="lbl-' + key + '">' + COLOR_LABELS[key] + '</span><div class="swatches">';
+    COLORS[key].forEach(function(c){ html += '<button type="button" class="sw" id="sw-' + key + '-' + c[0].slice(1) + '" data-key="' + key + '" data-val="' + c[0] + '" style="background:' + c[0] + '" aria-label="' + c[1] + '" aria-pressed="false"></button>'; });
+    html += '</div></div>';
+  });
+  html += '<div class="divider"></div>';
+  html += '<div class="slider"><label for="plump">Пухлость</label><output id="plumpOut" for="plump"></output><input type="range" id="plump" min="0.8" max="1.35" step="0.01"></div>';
+  html += '<div class="slider"><label for="head">Размер головы</label><output id="headOut" for="head"></output><input type="range" id="head" min="0.85" max="1.4" step="0.01"></div>';
+  document.getElementById('controls').innerHTML = html;
+
+  function sync(){
+    document.querySelectorAll('[data-key]').forEach(function(b){ b.setAttribute('aria-pressed', String(state[b.dataset.key] === b.dataset.val)); });
+    document.getElementById('plump').value = state.plump;
+    document.getElementById('head').value = state.head;
+    document.getElementById('plumpOut').textContent = Math.round(state.plump * 100) + '%';
+    document.getElementById('headOut').textContent = Math.round(state.head * 100) + '%';
+  }
+  sync();
+
+  document.getElementById('controls').addEventListener('click', function(e){
+    var b = e.target.closest('[data-key]'); if (!b) return;
+    var k = b.dataset.key, v = b.dataset.val;
+    if (state[k] === v) return;
+    state[k] = v;
+    if (k === 'species') state.skin = SPECIES_SKIN[v];
+    sync(); S.notify();
+  });
+  var t = null;
+  ['plump','head'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', function(e){
+      state[id] = parseFloat(e.target.value);
+      sync(); clearTimeout(t); t = setTimeout(function(){ S.notify(); }, 60);
+    });
+  });
+  function pick(a){ return a[Math.floor(Math.random() * a.length)]; }
+  document.getElementById('random').addEventListener('click', function(){
+    Object.keys(OPTIONS).forEach(function(k){ state[k] = pick(OPTIONS[k])[0]; });
+    Object.keys(COLORS).forEach(function(k){ state[k] = pick(COLORS[k])[0]; });
+    if (Math.random() < 0.6) state.skin = SPECIES_SKIN[state.species];
+    state.plump = Math.round((0.85 + Math.random() * 0.45) * 100) / 100;
+    state.head = Math.round((0.95 + Math.random() * 0.4) * 100) / 100;
+    sync(); S.notify();
+  });
+  document.getElementById('reset').addEventListener('click', function(){ Object.assign(state, DEFAULTS); sync(); S.notify(); });
+  document.querySelector('.hud.bottom').addEventListener('click', function(e){
+    var b = e.target.closest('[data-act]'); if (b && S.act) S.act(b.dataset.act);
+  });
+  setTimeout(function(){
+    if (!S.ready) document.getElementById('loading').textContent = 'Не получилось загрузить 3D-библиотеки. Обнови страницу или проверь соединение.';
+  }, 15000);
+})();
+</script>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+  "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import * as CANNON from 'cannon-es';
+
+const S = window.SAILOR;
+const stage = document.getElementById('stage');
+const MOTION = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.35 : 1;
+const V3 = THREE.Vector3, Q = THREE.Quaternion, M4 = THREE.Matrix4;
+const UP = new V3(0, 1, 0), ZAX = new V3(0, 0, 1), YAX = new V3(0, 1, 0), ONE = new V3(1, 1, 1);
+const INK = '#2B2233', PANTS = '#33405A', BOOT = '#4A3428', GOLD = '#F2C14E', CREAM = '#FFFDF8';
+const TORSO_Y = 0.80;
+const SKY = '#BFE6F2';
+
+/* ---------- renderer / scene ---------- */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+stage.prepend(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(SKY);
+scene.fog = new THREE.Fog(SKY, 22, 70);
+
+const camera = new THREE.PerspectiveCamera(36, 1, 0.1, 200);
+camera.position.set(2.4, 1.75, 3.7);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.9, 0);
+controls.enableDamping = true;
+controls.enablePan = false;
+controls.minDistance = 1.8;
+controls.maxDistance = 10;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+scene.add(new THREE.HemisphereLight('#FFF6E8', '#86AEBB', 1.25));
+const sun = new THREE.DirectionalLight('#FFF0D8', 2.1);
+sun.position.set(4, 8, 3.5);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -6, right: 6, top: 6, bottom: -6, near: 1, far: 25 });
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.02;
+scene.add(sun);
+
+/* ---------- materials ---------- */
+const grad = new THREE.DataTexture(new Uint8Array([150,150,150,255, 212,212,212,255, 255,255,255,255]), 3, 1);
+grad.minFilter = grad.magFilter = THREE.NearestFilter;
+grad.generateMipmaps = false;
+grad.needsUpdate = true;
+
+const outlineMat = new THREE.ShaderMaterial({
+  uniforms: { thick: { value: 0.012 }, col: { value: new THREE.Color(INK) } },
+  vertexShader: 'uniform float thick; void main(){ vec3 p = position + normalize(normal) * thick; gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }',
+  fragmentShader: 'uniform vec3 col; void main(){ gl_FragColor = vec4(col, 1.0); }',
+  side: THREE.BackSide
+});
+
+function toonMat(color, o = {}) {
+  return new THREE.MeshToonMaterial({
+    color: o.map ? 0xffffff : color, gradientMap: grad, map: o.map || null,
+    transparent: o.opacity != null, opacity: o.opacity ?? 1, side: o.side ?? THREE.FrontSide
+  });
+}
+function part(geo, color, o = {}) {
+  const m = new THREE.Mesh(geo, toonMat(color, o));
+  m.castShadow = o.shadow !== false;
+  if (o.outline !== false) {
+    const ol = new THREE.Mesh(geo, outlineMat);
+    ol.userData.outline = true;
+    ol.raycast = () => {};
+    m.add(ol);
+  }
+  return m;
+}
+function shade(hex, amt) {
+  const c = new THREE.Color(hex);
+  return '#' + c.lerp(new THREE.Color(amt < 0 ? '#000000' : '#ffffff'), Math.abs(amt)).getHexString();
+}
+function canvasTex(w, h, draw, repeat) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  draw(c.getContext('2d'), w, h);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  if (repeat) { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(repeat[0], repeat[1]); }
+  return t;
+}
+function circle(g, x, y, r, fill) { g.fillStyle = fill; g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill(); }
+
+/* ---------- environment ---------- */
+const env = new THREE.Group(); scene.add(env);
+const deckTex = canvasTex(512, 512, (g) => {
+  g.fillStyle = '#DDAE7B'; g.fillRect(0, 0, 512, 512);
+  for (let i = 0; i < 8; i++) {
+    const y = i * 64;
+    g.fillStyle = i % 2 ? '#D8A773' : '#E0B381'; g.fillRect(0, y + 3, 512, 58);
+    g.fillStyle = '#B98A5B'; g.fillRect(0, y, 512, 3);
+    const off = (i * 157) % 512; g.fillRect(off, y, 3, 64); g.fillRect((off + 256) % 512, y, 3, 64);
+    g.fillStyle = '#9C7048'; circle(g, (off + 12) % 512, y + 32, 2.5, '#9C7048'); circle(g, (off + 268) % 512, y + 32, 2.5, '#9C7048');
+  }
+}, [3, 2]);
+const deck = new THREE.Mesh(new THREE.BoxGeometry(9, 0.14, 6), [
+  toonMat('#C99664'), toonMat('#C99664'), toonMat(0, { map: deckTex }), toonMat('#C99664'), toonMat('#C99664'), toonMat('#C99664')
+]);
+deck.position.y = -0.07; deck.receiveShadow = true; env.add(deck);
+const hull = part(new THREE.BoxGeometry(9.5, 1.5, 6.5), '#B5523B', { shadow: false }); hull.position.y = -0.85; env.add(hull);
+const stripe = new THREE.Mesh(new THREE.BoxGeometry(9.54, 0.14, 6.54), toonMat(CREAM)); stripe.position.y = -0.42; env.add(stripe);
+
+const railMat = toonMat('#8B5E3C');
+const postGeo = new THREE.CylinderGeometry(0.04, 0.045, 0.55, 10);
+function railLine(x1, z1, x2, z2) {
+  const len = Math.hypot(x2 - x1, z2 - z1), n = Math.round(len / 0.75);
+  for (let i = 0; i <= n; i++) {
+    const p = new THREE.Mesh(postGeo, railMat);
+    p.position.set(x1 + (x2 - x1) * i / n, 0.275, z1 + (z2 - z1) * i / n); p.castShadow = true; env.add(p);
+  }
+  const bar = part(new THREE.CylinderGeometry(0.05, 0.05, len, 10), '#8B5E3C', { shadow: true });
+  bar.position.set((x1 + x2) / 2, 0.56, (z1 + z2) / 2);
+  bar.quaternion.setFromUnitVectors(YAX, new V3(x2 - x1, 0, z2 - z1).normalize());
+  env.add(bar);
+}
+railLine(-4.4, -2.9, 4.4, -2.9); railLine(-4.4, 2.9, 4.4, 2.9);
+railLine(-4.4, -2.9, -4.4, 2.9); railLine(4.4, -2.9, 4.4, 2.9);
+
+// mast + sail + flag
+const mast = part(new THREE.CylinderGeometry(0.09, 0.13, 5.2, 16), '#8B5E3C'); mast.position.set(-3, 2.6, -2.2); env.add(mast);
+const sailGeo = new THREE.PlaneGeometry(2.3, 2.8, 12, 12);
+{ const pa = sailGeo.attributes.position; for (let i = 0; i < pa.count; i++) { const x = pa.getX(i), y = pa.getY(i); pa.setZ(i, Math.sin((x / 2.3 + 0.5) * Math.PI) * 0.35 * (0.6 + 0.4 * Math.cos(y / 2.8 * Math.PI))); } sailGeo.computeVertexNormals(); }
+const sail = part(sailGeo, '#FFF6E6', { side: THREE.DoubleSide, outline: false }); sail.position.set(-1.75, 3.0, -2.2); env.add(sail);
+const boom = part(new THREE.CylinderGeometry(0.05, 0.05, 2.5, 10), '#8B5E3C'); boom.rotation.z = Math.PI / 2; boom.position.set(-1.75, 1.55, -2.2); env.add(boom);
+const flag = part(new THREE.PlaneGeometry(0.7, 0.42, 8, 2), '#E86A4A', { side: THREE.DoubleSide, outline: false }); flag.position.set(-2.62, 5.0, -2.2); env.add(flag);
+
+// crates, barrel, rope
+const crateTex = canvasTex(128, 128, (g) => {
+  g.fillStyle = '#C9955C'; g.fillRect(0, 0, 128, 128);
+  g.strokeStyle = '#8F6440'; g.lineWidth = 12; g.strokeRect(6, 6, 116, 116);
+  g.lineWidth = 9; g.beginPath(); g.moveTo(12, 12); g.lineTo(116, 116); g.stroke();
+  g.fillStyle = '#B9855A'; g.fillRect(12, 44, 104, 3); g.fillRect(12, 82, 104, 3);
+});
+const crates = [[0.7, 2.5, -1.5], [0.55, 3.25, -0.95], [0.5, 2.55, -1.42, 0.7]];
+crates.forEach(([s, x, z, y]) => {
+  const c = part(new THREE.BoxGeometry(s, s, s), 0, { map: crateTex });
+  c.position.set(x, (y || 0) + s / 2, z); c.rotation.y = (x * 7) % 0.4; c.receiveShadow = true; env.add(c);
+});
+const barrelPts = []; for (let i = 0; i <= 10; i++) { const t = i / 10; barrelPts.push(new THREE.Vector2(0.27 + Math.sin(t * Math.PI) * 0.05, t * 0.76)); }
+const barrel = part(new THREE.LatheGeometry(barrelPts, 24), '#B9784A'); barrel.position.set(-2.3, 0, 1.3); env.add(barrel);
+[0.14, 0.62].forEach((y) => { const b = new THREE.Mesh(new THREE.TorusGeometry(0.305, 0.022, 8, 32), toonMat('#4A3B33')); b.rotation.x = Math.PI / 2; b.position.set(-2.3, y, 1.3); env.add(b); });
+const lid = new THREE.Mesh(new THREE.CircleGeometry(0.27, 24), toonMat('#9C643C')); lid.rotation.x = -Math.PI / 2; lid.position.set(-2.3, 0.761, 1.3); env.add(lid);
+[0.26, 0.17].forEach((r, i) => { const rope = part(new THREE.TorusGeometry(r, 0.05, 10, 32), '#C7A46A'); rope.rotation.x = -Math.PI / 2; rope.position.set(-1.25, 0.05 + i * 0.07, 2.05); env.add(rope); });
+
+// water, sun, clouds, island
+const waterGeo = new THREE.PlaneGeometry(180, 180, 90, 90); waterGeo.rotateX(-Math.PI / 2);
+const water = new THREE.Mesh(waterGeo, toonMat('#4FB3C4')); water.position.y = -0.75; water.receiveShadow = true; scene.add(water);
+const sunDisc = new THREE.Mesh(new THREE.SphereGeometry(3.2, 24, 16), new THREE.MeshBasicMaterial({ color: '#FFF4D6', fog: false })); sunDisc.position.set(26, 22, -55); scene.add(sunDisc);
+function cloud(x, y, z, s) {
+  const g = new THREE.Group();
+  [[0, 0, 0, 1.2], [1.3, 0.3, 0, 1.5], [2.7, 0, 0, 1.1], [1.2, -0.4, 0.4, 1.3]].forEach(([a, b, c, r]) => {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), toonMat('#FFFFFF')); m.position.set(a, b, c); g.add(m);
+  });
+  g.position.set(x, y, z); g.scale.setScalar(s); scene.add(g); return g;
+}
+const clouds = [cloud(-20, 9, -40, 1.4), cloud(8, 12, -50, 1.8), cloud(30, 8, -30, 1.1), cloud(-38, 13, -20, 1.6)];
+const island = new THREE.Group();
+const isl = new THREE.Mesh(new THREE.SphereGeometry(6, 28, 16, 0, Math.PI * 2, 0, Math.PI / 2), toonMat('#7DBF86')); isl.scale.set(1.6, 0.55, 1); island.add(isl);
+const sand = new THREE.Mesh(new THREE.CylinderGeometry(10.3, 10.6, 0.5, 32), toonMat('#F3D9A4')); sand.scale.set(1, 1, 0.65); island.add(sand);
+island.position.set(-34, -0.9, -60); scene.add(island);
+
+/* ---------- physics world ---------- */
+const world = new CANNON.World({ gravity: new CANNON.Vec3(0, -14, 0) });
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.solver.iterations = 18;
+world.defaultContactMaterial.friction = 0.45;
+world.defaultContactMaterial.restitution = 0.18;
+const ground = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Plane() });
+ground.quaternion.setFromEuler(-Math.PI / 2, 0, 0); world.addBody(ground);
+function staticBox(sx, sy, sz, x, y, z, ry = 0) {
+  const b = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Box(new CANNON.Vec3(sx / 2, sy / 2, sz / 2)) });
+  b.position.set(x, y, z); b.quaternion.setFromEuler(0, ry, 0); world.addBody(b);
+}
+staticBox(0.3, 1.2, 6.4, -4.5, 0.6, 0); staticBox(0.3, 1.2, 6.4, 4.5, 0.6, 0);
+staticBox(9.4, 1.2, 0.3, 0, 0.6, -3.0); staticBox(9.4, 1.2, 0.3, 0, 0.6, 3.0);
+crates.forEach(([s, x, z, y]) => staticBox(s, s, s, x, (y || 0) + s / 2, z, (x * 7) % 0.4));
+{ const b = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Cylinder(0.31, 0.31, 0.76, 14) }); b.position.set(-2.3, 0.38, 1.3); world.addBody(b); }
+{ const b = new CANNON.Body({ type: CANNON.Body.STATIC, shape: new CANNON.Cylinder(0.13, 0.13, 5, 10) }); b.position.set(-3, 2.5, -2.2); world.addBody(b); }
+const OBSTACLES = [{ x: 2.5, z: -1.5, r: 0.75 }, { x: 3.25, z: -0.95, r: 0.6 }, { x: -2.3, z: 1.3, r: 0.6 }, { x: -3, z: -2.2, r: 0.4 }];
+
+/* ---------- character ---------- */
+const ITEM_POSE = { none: [0.05, 0.2], mug: [-1.15, 0.1], rod: [-0.75, 0.16], wrench: [-0.4, 0.28], spyglass: [-1.45, -0.05] };
+let rig = null;
+
+function buildCharacter(s) {
+  const p = s.plump, h = s.head;
+  const isSquid = s.species === 'squid', isDuck = s.species === 'duck', isOtter = s.species === 'otter';
+  const r = { segs: {}, list: [], props: [], objects: [] };
+  const mk = (name, com, mass, shapes) => {
+    const g = new THREE.Group(); g.userData.seg = name; scene.add(g);
+    const seg = { name, group: g, com, mass, shapes, body: null };
+    r.segs[name] = seg; r.list.push(seg); r.objects.push(g); return seg;
+  };
+  const skin = s.skin;
+  const handCol = isOtter ? shade(skin, -0.28) : skin;
+
+  // dims
+  const R = 0.27 * h, hs = isSquid ? 1.22 : 1;
+  const c = new V3(0, 0.22 * h, 0);
+  const d = r.dims = {
+    neck: new V3(0, 0.36, 0), sh: 0.27 * p + 0.03, shY: 0.17, hip: 0.13 * p, hipY: -0.30,
+    armRX: ITEM_POSE[s.item][0], armRZ: ITEM_POSE[s.item][1]
+  };
+
+  /* textures */
+  const PB = 132;
+  const torsoTex = canvasTex(256, 256, (g) => {
+    if (s.outfit === 'stripes') {
+      g.fillStyle = CREAM; g.fillRect(0, 0, 256, PB);
+      g.fillStyle = s.cloth; for (let y = 6; y < PB - 6; y += 20) g.fillRect(0, y, 256, 9);
+      g.fillStyle = PANTS; g.fillRect(0, PB, 256, 256 - PB);
+    } else if (s.outfit === 'raincoat') {
+      g.fillStyle = s.cloth; g.fillRect(0, 0, 256, 256);
+      g.fillStyle = shade(s.cloth, -0.2); g.fillRect(0, 0, 5, 256); g.fillRect(251, 0, 5, 256);
+      g.fillRect(40, 150, 36, 32); g.fillRect(180, 150, 36, 32);
+      [50, 92, 134, 176].forEach((y) => { circle(g, 0, y, 7, INK); circle(g, 256, y, 7, INK); });
+    } else if (s.outfit === 'overalls') {
+      g.fillStyle = s.accent; g.fillRect(0, 0, 256, 256);
+      g.fillStyle = s.cloth; g.fillRect(0, PB, 256, 256 - PB);
+      g.fillRect(0, 62, 38, PB - 62); g.fillRect(218, 62, 38, PB - 62);
+      g.fillRect(22, 0, 11, 66); g.fillRect(223, 0, 11, 66);
+      circle(g, 27, 72, 6, GOLD); circle(g, 229, 72, 6, GOLD);
+      g.fillStyle = shade(s.cloth, -0.2); g.fillRect(0, 98, 26, 3); g.fillRect(230, 98, 26, 3);
+    } else {
+      g.fillStyle = s.cloth; g.fillRect(0, 0, 256, PB);
+      g.fillStyle = s.accent; g.fillRect(0, 30, 256, 34);
+      g.fillStyle = CREAM; for (let x = 0; x < 256; x += 16) { g.beginPath(); g.moveTo(x, 54); g.lineTo(x + 8, 40); g.lineTo(x + 16, 54); g.lineTo(x + 12, 54); g.lineTo(x + 8, 47); g.lineTo(x + 4, 54); g.fill(); }
+      g.fillStyle = PANTS; g.fillRect(0, PB, 256, 256 - PB);
+    }
+  });
+  const sleeveTex = canvasTex(64, 64, (g) => {
+    if (s.outfit === 'stripes') { g.fillStyle = CREAM; g.fillRect(0, 0, 64, 64); g.fillStyle = s.cloth; for (let y = 2; y < 64; y += 12) g.fillRect(0, y, 64, 6); }
+    else if (s.outfit === 'overalls') { g.fillStyle = s.accent; g.fillRect(0, 0, 64, 64); }
+    else { g.fillStyle = s.cloth; g.fillRect(0, 0, 64, 64); if (s.outfit === 'sweater') { g.fillStyle = s.accent; g.fillRect(0, 50, 64, 14); } }
+  });
+
+  /* torso */
+  const torso = mk('torso', new V3(0, 0, 0), 3 * p, [{ r: 0.27 * Math.sqrt(p), off: new V3(0, -0.09, 0) }, { r: 0.25 * Math.sqrt(p), off: new V3(0, 0.1, 0) }]);
+  const body = part(new THREE.CapsuleGeometry(0.29, 0.22, 10, 32), 0, { map: torsoTex });
+  body.scale.set(p, 1, p * 0.92); torso.group.add(body);
+  if (s.outfit === 'stripes' || s.outfit === 'sweater') {
+    const belt = part(new THREE.TorusGeometry(0.29, 0.03, 8, 40), '#5A3E2B', { outline: false });
+    belt.rotation.x = Math.PI / 2; belt.scale.set(p, p * 0.92, 1); belt.position.y = -0.12; torso.group.add(belt);
+    const buckle = part(new THREE.BoxGeometry(0.08, 0.06, 0.02), GOLD); buckle.position.set(0, -0.12, 0.29 * p * 0.92 + 0.02); torso.group.add(buckle);
+  }
+  if (s.outfit === 'stripes') {
+    const kerchief = part(new THREE.ConeGeometry(0.075, 0.13, 3), s.accent); kerchief.rotation.set(Math.PI + 0.35, Math.PI, 0); kerchief.position.set(0, 0.27, 0.2 * p + 0.02); torso.group.add(kerchief);
+  }
+  if (s.outfit === 'raincoat') {
+    const collar = part(new THREE.TorusGeometry(0.17, 0.05, 10, 28), shade(s.cloth, -0.08)); collar.rotation.x = Math.PI / 2; collar.scale.set(p, p * 0.92, 1); collar.position.y = 0.33; torso.group.add(collar);
+    const skirt = part(new THREE.CylinderGeometry(0.29, 0.335, 0.16, 32, 1, true), s.cloth, { side: THREE.DoubleSide }); skirt.scale.set(p, 1, p * 0.92); skirt.position.y = -0.3; torso.group.add(skirt);
+  }
+  if (s.outfit === 'sweater') {
+    const neck = part(new THREE.TorusGeometry(0.15, 0.055, 10, 28), s.cloth); neck.rotation.x = Math.PI / 2; neck.position.y = 0.35; torso.group.add(neck);
+  }
+  if (isOtter) {
+    const tail = part(new THREE.CapsuleGeometry(0.08, 0.34, 8, 16), shade(skin, -0.12)); tail.rotation.x = 1.2; tail.position.set(0, -0.32, -0.29 * p - 0.1); torso.group.add(tail);
+  }
+  if (isSquid) {
+    [-1, 1].forEach((sd, i) => { const t = part(new THREE.CapsuleGeometry(0.045, 0.18, 6, 12), skin); t.position.set(sd * 0.09 * p, -0.4, -0.12); t.rotation.set(-0.5, 0, sd * 0.25); torso.group.add(t); });
+  }
+
+  /* head */
+  const head = mk('head', c.clone(), 1.5 * h * h * h, [{ r: R * (isSquid ? 1.08 : 1), off: new V3(0, isSquid ? R * 0.12 : 0, 0) }]);
+  const HG = head.group;
+  const skull = part(new THREE.SphereGeometry(R, 40, 28), skin); skull.position.copy(c); skull.scale.set(1, hs, 1); HG.add(skull);
+  const onHead = (x, y, z, off = 0) => { const n = new V3(x, y, z).normalize(); return { n, pos: new V3(c.x + n.x * (R + off), c.y + n.y * (R * hs + off), c.z + n.z * (R + off)) }; };
+  const orient = (m, n, spin = 0) => { m.quaternion.setFromUnitVectors(ZAX, n); if (spin) m.quaternion.multiply(new Q().setFromAxisAngle(ZAX, spin)); };
+
+  const faceIdle = new THREE.Group(), faceRd = new THREE.Group(); faceRd.visible = false;
+  HG.add(faceIdle, faceRd); r.faceIdle = faceIdle; r.faceRd = faceRd;
+  const e = 0.068 * h;
+  [-1, 1].forEach((sd) => {
+    const { n, pos } = onHead(sd * 0.37, 0.13, 0.92, -0.008 * h);
+    if (s.eyes === 'dots') {
+      const dot = part(new THREE.SphereGeometry(e * 0.55, 18, 12), INK, { outline: false, shadow: false }); dot.scale.set(1, 1.3, 0.5); dot.position.copy(pos); orient(dot, n); faceIdle.add(dot);
+      const gl = part(new THREE.SphereGeometry(e * 0.15, 10, 8), '#FFFFFF', { outline: false, shadow: false }); gl.position.copy(pos).addScaledVector(n, e * 0.25).add(new V3(0.012 * h, 0.02 * h, 0)); faceIdle.add(gl);
+    } else {
+      const white = part(new THREE.SphereGeometry(e, 24, 16), '#FFFFFF', { shadow: false }); white.scale.set(1, 1.12, 0.55); white.position.copy(pos); orient(white, n); faceIdle.add(white);
+      const low = s.eyes === 'sleepy' ? -e * 0.28 : 0;
+      const pup = part(new THREE.SphereGeometry(e * 0.52, 18, 12), INK, { outline: false, shadow: false }); pup.scale.set(1, 1.12, 0.5); pup.position.copy(pos).addScaledVector(n, e * 0.42).add(new V3(sd * -0.006 * h, low, 0)); orient(pup, n); faceIdle.add(pup);
+      const gl = part(new THREE.SphereGeometry(e * 0.15, 10, 8), '#FFFFFF', { outline: false, shadow: false }); gl.position.copy(pup.position).addScaledVector(n, e * 0.2).add(new V3(0.014 * h, 0.016 * h, 0)); faceIdle.add(gl);
+      if (s.eyes === 'sleepy') {
+        const lid = part(new THREE.SphereGeometry(e * 1.1, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.5), isDuck ? '#EDE6DA' : shade(skin, -0.1), { shadow: false });
+        lid.scale.set(1, 1.12, 0.62); lid.position.copy(pos); orient(lid, n); lid.rotateX(-0.25); faceIdle.add(lid);
+      }
+    }
+    // ragdoll X eyes
+    const xg = new THREE.Group(); xg.position.copy(onHead(sd * 0.37, 0.13, 0.92, 0.004 * h).pos); orient(xg, n);
+    [Math.PI / 4, -Math.PI / 4].forEach((a) => { const bar = new THREE.Mesh(new THREE.BoxGeometry(e * 1.9, e * 0.42, e * 0.4), toonMat(INK)); bar.rotation.z = a; xg.add(bar); });
+    faceRd.add(xg);
+  });
+  // mouths
+  if (!isDuck) {
+    const mp = isOtter ? onHead(0, -0.43, 0.9, 0.05 * h) : onHead(0, -0.3, 0.95, 0.002 * h);
+    const smile = part(new THREE.TorusGeometry(0.042 * h, 0.011 * h, 8, 16, Math.PI), INK, { outline: false, shadow: false });
+    smile.position.copy(mp.pos); orient(smile, mp.n, Math.PI); faceIdle.add(smile);
+    const oh = part(new THREE.SphereGeometry(0.05 * h, 18, 12), '#7A2E2E', { shadow: false }); oh.scale.set(1, 1.2, 0.45); oh.position.copy(mp.pos); orient(oh, mp.n); faceRd.add(oh);
+  }
+  // species details
+  if (s.species === 'bun') {
+    const nose = onHead(0, -0.07, 1, 0.012 * h);
+    const nm = part(new THREE.SphereGeometry(0.052 * h, 18, 12), shade(skin, -0.12), { shadow: false }); nm.position.copy(nose.pos); HG.add(nm);
+    [-1, 1].forEach((sd) => {
+      const ear = part(new THREE.SphereGeometry(0.06 * h, 16, 12), shade(skin, -0.06)); ear.position.copy(c).add(new V3(sd * R * 0.98, -0.01, 0)); ear.scale.set(0.6, 1, 0.9); HG.add(ear);
+    });
+  }
+  if (isOtter) {
+    [-1, 1].forEach((sd) => {
+      const ep = onHead(sd * 0.6, 0.7, 0.05, -0.02 * h);
+      const ear = part(new THREE.SphereGeometry(0.075 * h, 16, 12), shade(skin, -0.1)); ear.position.copy(ep.pos); ear.scale.set(1, 1, 0.6); HG.add(ear);
+      const inner = part(new THREE.SphereGeometry(0.04 * h, 12, 8), '#D99A86', { outline: false, shadow: false }); inner.position.copy(ep.pos).add(new V3(0, 0, 0.03 * h)); inner.scale.set(1, 1, 0.4); HG.add(inner);
+    });
+    const mz = onHead(0, -0.36, 0.93, -0.06 * h);
+    const muzzle = part(new THREE.SphereGeometry(0.13 * h, 24, 16), '#F3E4CC'); muzzle.scale.set(1.3, 0.85, 0.75); muzzle.position.copy(mz.pos); HG.add(muzzle);
+    const np = onHead(0, -0.2, 1, 0.035 * h);
+    const nose = part(new THREE.SphereGeometry(0.04 * h, 16, 10), INK, { outline: false }); nose.scale.set(1.4, 1, 0.8); nose.position.copy(np.pos); HG.add(nose);
+    [-1, 1].forEach((sd) => [0.03, -0.01].forEach((dy) => {
+      const w = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.16 * h, 4), toonMat(INK));
+      w.position.copy(mz.pos).add(new V3(sd * 0.17 * h, dy * h, 0.05 * h)); w.rotation.z = Math.PI / 2 + sd * dy * 4; HG.add(w);
+    }));
+  }
+  if (isDuck) {
+    const bp = onHead(0, -0.22, 0.97, -0.03 * h);
+    const beak = part(new THREE.SphereGeometry(0.13 * h, 24, 16), '#F7962E'); beak.scale.set(1.25, 0.42, 1.0); beak.position.copy(bp.pos); HG.add(beak);
+    const lower = part(new THREE.SphereGeometry(0.1 * h, 20, 12), '#D9731F'); lower.scale.set(1.15, 0.35, 0.9); lower.position.copy(bp.pos).add(new V3(0, -0.04 * h, -0.01 * h)); HG.add(lower);
+    [-0.4, 0, 0.4].forEach((a, i) => { const tuft = part(new THREE.CapsuleGeometry(0.018 * h, 0.07 * h, 4, 8), skin); tuft.position.copy(c).add(new V3(Math.sin(a) * 0.04, R * hs + 0.02 * h, -0.02)); tuft.rotation.z = -a * 1.2; HG.add(tuft); });
+  }
+  if (isSquid) {
+    [-1, 1].forEach((sd) => {
+      const fin = part(new THREE.SphereGeometry(0.13 * h, 20, 12), shade(skin, -0.12)); fin.scale.set(1.35, 0.35, 0.8); fin.position.copy(c).add(new V3(sd * R * 0.82, R * hs * 0.72, 0)); fin.rotation.z = sd * 0.55; HG.add(fin);
+    });
+    [[0.3, 0.55, 0.78, 0.022], [-0.45, 0.4, 0.8, 0.017], [0.05, 0.85, 0.52, 0.02]].forEach(([x, y, z, rr]) => {
+      const sp = onHead(x, y, z, -0.004 * h); const m = part(new THREE.SphereGeometry(rr * h * 1.6, 12, 8), shade(skin, 0.3), { outline: false, shadow: false }); m.scale.set(1, 1, 0.3); m.position.copy(sp.pos); orient(m, sp.n); HG.add(m);
+    });
+  }
+  // cheeks
+  if (!isDuck) {
+    [-1, 1].forEach((sd) => { const ck = onHead(sd * 0.62, -0.17, 0.77, -0.004 * h); const m = part(new THREE.SphereGeometry(0.045 * h, 14, 10), '#F08C8C', { outline: false, shadow: false, opacity: 0.55 }); m.scale.set(1.3, 0.8, 0.25); m.position.copy(ck.pos); orient(m, ck.n); faceIdle.add(m); });
+  }
+  // facial hair
+  if (s.beard === 'full') {
+    const beard = part(new THREE.SphereGeometry(R * 0.72, 28, 20), s.hair); beard.scale.set(1.18, 0.95, 0.72); beard.position.copy(c).add(new V3(0, -R * 0.82, R * 0.42)); HG.add(beard);
+  }
+  if (s.beard !== 'none') {
+    const big = s.beard === 'mustache' ? 1.25 : 1;
+    [-1, 1].forEach((sd) => { const mp = onHead(sd * 0.17, -0.19, 0.97, 0.02 * h); const m = part(new THREE.CapsuleGeometry(0.03 * h * big, 0.07 * h * big, 6, 12), s.hair); m.position.copy(mp.pos); m.rotation.z = sd * 1.15; m.rotation.y = sd * -0.3; HG.add(m); });
+  }
+
+  /* hat */
+  const yb = c.y + R * hs * 0.55;
+  if (s.hat !== 'none') {
+    const hat = new THREE.Group();
+    const add = (m) => { hat.add(m); return m; };
+    if (s.hat === 'captain') {
+      add(part(new THREE.CylinderGeometry(R * 0.9, R * 0.9, R * 0.24, 32), shade(s.cloth, -0.2))).position.y = R * 0.12;
+      const top = add(part(new THREE.CylinderGeometry(R * 1.06, R * 0.9, R * 0.22, 32), CREAM)); top.position.set(0, R * 0.34, -R * 0.03); top.rotation.x = -0.08;
+      const visor = add(part(new THREE.CylinderGeometry(R * 0.62, R * 0.62, R * 0.05, 24, 1, false, -Math.PI / 2, Math.PI), '#1A1F29')); visor.position.set(0, R * 0.02, R * 0.42); visor.rotation.x = 0.28; visor.scale.z = 1.05;
+      const badge = add(part(new THREE.SphereGeometry(R * 0.1, 14, 10), GOLD)); badge.scale.z = 0.5; badge.position.set(0, R * 0.14, R * 0.9);
+      hat.rotation.z = 0.06;
+    } else if (s.hat === 'souwester') {
+      const dome = add(part(new THREE.SphereGeometry(R * 0.94, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2), s.accent)); dome.position.y = -R * 0.06; dome.scale.y = 0.95;
+      const brim = add(part(new THREE.CylinderGeometry(R * 1.45, R * 1.55, R * 0.06, 36), shade(s.accent, -0.08))); brim.position.set(0, -R * 0.08, -R * 0.12); brim.rotation.x = -0.16;
+      const seam = add(part(new THREE.TorusGeometry(R * 0.5, R * 0.025, 6, 32), shade(s.accent, -0.25), { outline: false })); seam.rotation.x = Math.PI / 2; seam.position.y = R * 0.72;
+    } else if (s.hat === 'beanie') {
+      const dome = add(part(new THREE.SphereGeometry(R * 0.95, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2), s.accent)); dome.scale.y = 1.15; dome.position.y = -R * 0.1;
+      const band = add(part(new THREE.TorusGeometry(R * 0.9, R * 0.14, 12, 36), shade(s.accent, -0.15))); band.rotation.x = Math.PI / 2; band.position.y = -R * 0.04;
+      add(part(new THREE.SphereGeometry(R * 0.24, 18, 12), CREAM)).position.y = R * 1.02;
+      hat.rotation.z = -0.12;
+    } else if (s.hat === 'tricorne') {
+      const dome = add(part(new THREE.SphereGeometry(R * 0.86, 32, 14, 0, Math.PI * 2, 0, Math.PI / 2), '#2B2A33')); dome.position.y = -R * 0.05;
+      const brim = add(part(new THREE.CylinderGeometry(R * 1.45, R * 1.4, R * 0.18, 3), '#2B2A33')); brim.position.y = R * 0.04;
+      const trim = add(part(new THREE.CylinderGeometry(R * 1.5, R * 1.5, R * 0.04, 3), GOLD, { outline: false })); trim.position.y = R * 0.15;
+      const plume = add(part(new THREE.CapsuleGeometry(R * 0.1, R * 0.5, 6, 12), s.accent)); plume.position.set(R * 0.5, R * 0.55, -R * 0.2); plume.rotation.z = -0.9;
+    } else if (s.hat === 'bandana') {
+      const dots = canvasTex(64, 64, (g) => { g.fillStyle = s.accent; g.fillRect(0, 0, 64, 64); [[16, 16], [48, 48], [48, 16], [16, 48]].forEach(([x, y]) => circle(g, x, y, 5, CREAM)); }, [6, 3]);
+      const cap = add(part(new THREE.SphereGeometry(R * 1.05, 32, 14, 0, Math.PI * 2, 0, Math.PI * 0.38), 0, { map: dots })); cap.position.y = c.y - yb; cap.scale.y = hs;
+      const knot = add(part(new THREE.SphereGeometry(R * 0.15, 14, 10), s.accent)); knot.position.set(0, c.y - yb + R * hs * 0.32, -R * 0.98);
+      [-1, 1].forEach((sd) => { const tl = add(part(new THREE.CapsuleGeometry(R * 0.07, R * 0.35, 4, 10), s.accent)); tl.position.set(sd * R * 0.12, c.y - yb + R * 0.05, -R * 1.02); tl.rotation.set(-0.3, 0, sd * 0.35); });
+    }
+    const box = new THREE.Box3().setFromObject(hat);
+    hat.userData = { prop: 'hat', parent: 'head', mass: 0.18, box, home: { pos: new V3(0, yb, 0), quat: hat.quaternion.clone() } };
+    hat.position.copy(hat.userData.home.pos);
+    HG.add(hat); r.props.push(hat);
+  }
+
+  /* arms */
+  [-1, 1].forEach((sd) => {
+    const name = sd < 0 ? 'armL' : 'armR';
+    const arm = mk(name, new V3(0, -0.18, 0), 0.35, [{ r: 0.08, off: new V3(0, 0.12, 0) }, { r: 0.088, off: new V3(0, -0.16, 0) }]);
+    const sleeve = part(new THREE.CapsuleGeometry(0.075, 0.2, 8, 18), 0, { map: sleeveTex }); sleeve.position.y = -0.15; arm.group.add(sleeve);
+    const hand = part(new THREE.SphereGeometry(0.085, 20, 14), handCol); hand.position.y = -0.34; arm.group.add(hand);
+  });
+
+  /* held item */
+  if (s.item !== 'none') {
+    const it = new THREE.Group();
+    const add = (m) => { it.add(m); return m; };
+    if (s.item === 'mug') {
+      const mugCol = s.accent === CREAM ? '#E86A4A' : s.accent;
+      add(part(new THREE.CylinderGeometry(0.07, 0.065, 0.14, 24), mugCol)).position.set(0, 0.04, 0.075);
+      add(part(new THREE.TorusGeometry(0.038, 0.013, 8, 16), mugCol)).position.set(0.075, 0.04, 0.075);
+      add(part(new THREE.CylinderGeometry(0.06, 0.06, 0.01, 20), '#7A4A2E', { outline: false })).position.set(0, 0.106, 0.075);
+    } else if (s.item === 'rod') {
+      const dir = new V3(0, 0.82, 0.57).normalize();
+      const rod = add(part(new THREE.CylinderGeometry(0.011, 0.018, 1.45, 8), '#7A5033')); rod.quaternion.setFromUnitVectors(YAX, dir); rod.position.copy(dir).multiplyScalar(0.5);
+      const reel = add(part(new THREE.CylinderGeometry(0.045, 0.045, 0.035, 16), '#A7B2BA')); reel.rotation.z = Math.PI / 2; reel.position.copy(dir).multiplyScalar(0.13).add(new V3(0.05, 0, 0));
+      const tip = dir.clone().multiplyScalar(1.22);
+      const line = add(new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.7, 4), toonMat('#FFFFFF'))); line.position.copy(tip).add(new V3(0, -0.35, 0));
+      add(part(new THREE.SphereGeometry(0.035, 12, 10), '#E86A4A')).position.copy(tip).add(new V3(0, -0.7, 0));
+    } else if (s.item === 'wrench') {
+      add(part(new THREE.BoxGeometry(0.042, 0.28, 0.024), '#A7B2BA')).position.set(0, 0.07, 0.05);
+      add(part(new THREE.BoxGeometry(0.056, 0.1, 0.034), s.accent)).position.set(0, -0.02, 0.05);
+      const jaw = add(part(new THREE.TorusGeometry(0.05, 0.02, 8, 18, Math.PI * 1.55), '#A7B2BA')); jaw.position.set(0, 0.25, 0.05); jaw.rotation.z = -Math.PI * 0.23;
+    } else if (s.item === 'spyglass') {
+      [[0.05, 0.18, 0.08, '#6B4A33'], [0.043, 0.15, 0.24, '#C9A24A'], [0.036, 0.12, 0.37, '#B08A30']].forEach(([rr, l, z, col]) => {
+        const t = add(part(new THREE.CylinderGeometry(rr, rr, l, 20), col)); t.rotation.x = Math.PI / 2; t.position.set(0, 0.02, z);
+      });
+      const ring = add(part(new THREE.CylinderGeometry(0.056, 0.056, 0.025, 20), GOLD)); ring.rotation.x = Math.PI / 2; ring.position.set(0, 0.02, 0.17);
+    }
+    const box = new THREE.Box3().setFromObject(it);
+    const home = { pos: new V3(0, -0.34, 0), quat: new Q().setFromEuler(new THREE.Euler(-d.armRX, 0, -d.armRZ, 'ZYX')) };
+    it.userData = { prop: 'item', parent: 'armR', mass: 0.22, box, home };
+    it.position.copy(home.pos); it.quaternion.copy(home.quat);
+    r.segs.armR.group.add(it); r.props.push(it);
+  }
+
+  /* legs */
+  [-1, 1].forEach((sd) => {
+    const name = sd < 0 ? 'legL' : 'legR';
+    const leg = mk(name, new V3(0, -0.25, 0), 0.5, [{ r: 0.095, off: new V3(0, 0.12, 0) }, { r: 0.09, off: new V3(0, -0.17, 0.03) }]);
+    const legM = part(new THREE.CapsuleGeometry(0.095, 0.2, 8, 18), isSquid ? skin : PANTS); legM.position.y = -0.2; leg.group.add(legM);
+    if (isSquid) {
+      const tip = part(new THREE.SphereGeometry(0.1, 18, 12), skin); tip.scale.set(1, 0.55, 1.35); tip.position.set(0, -0.44, 0.05); leg.group.add(tip);
+      [0, 1, 2].forEach((i) => { const sk = part(new THREE.SphereGeometry(0.018, 8, 6), shade(skin, 0.35), { outline: false, shadow: false }); sk.position.set(0, -0.12 - i * 0.09, 0.09); leg.group.add(sk); });
+    } else {
+      const boot = part(new THREE.SphereGeometry(0.12, 20, 14), isDuck ? '#F7962E' : BOOT); boot.scale.set(1, 0.62, 1.4); boot.position.set(0, -0.43, 0.04); leg.group.add(boot);
+    }
+  });
+
+  return r;
+}
+
+/* ---------- pose ---------- */
+const rootPos = new V3(0, 0, 0);
+let rootYaw = 0;
+const _q = new Q(), _e = new THREE.Euler(), _s = new V3();
+function L(x, y, z, rx = 0, ry = 0, rz = 0) { _e.set(rx, ry, rz); return new M4().compose(new V3(x, y, z), _q.clone().setFromEuler(_e), ONE); }
+function computePose(t) {
+  const d = rig.dims, m = MOTION;
+  const root = new M4().compose(rootPos, new Q().setFromAxisAngle(UP, rootYaw), ONE);
+  const breath = Math.sin(t * 2.4) * m;
+  const torso = root.clone().multiply(L(0, TORSO_Y + breath * 0.012, 0, 0, Math.sin(t * 0.6) * 0.06 * m, Math.sin(t * 1.2) * 0.03 * m));
+  return {
+    torso,
+    head: torso.clone().multiply(L(d.neck.x, d.neck.y, d.neck.z, (Math.sin(t * 0.8) * 0.05 - 0.05) * m, Math.sin(t * 0.55) * 0.25 * m, Math.sin(t * 1.2 + 0.5) * 0.06 * m)),
+    armL: torso.clone().multiply(L(-d.sh, d.shY, 0, Math.sin(t * 1.3) * 0.08 * m, 0, -0.2 - breath * 0.04)),
+    armR: torso.clone().multiply(L(d.sh, d.shY, 0, d.armRX + Math.sin(t * 1.3 + 1) * 0.05 * m, 0, d.armRZ + breath * 0.04)),
+    legL: root.clone().multiply(L(-d.hip, TORSO_Y + d.hipY, 0)),
+    legR: root.clone().multiply(L(d.hip, TORSO_Y + d.hipY, 0))
+  };
+}
+function applyPose(pose) { for (const seg of rig.list) pose[seg.name].decompose(seg.group.position, seg.group.quaternion, _s); }
+
+/* ---------- ragdoll ---------- */
+let mode = 'idle', falls = 0, ragTime = 0, stillTime = 0, blendT = 0, fromMap = null;
+const constraints = [];
+const propBodies = new Map();
+
+function segBody(seg) {
+  const g = seg.group;
+  const b = new CANNON.Body({ mass: seg.mass, linearDamping: 0.06, angularDamping: 0.4 });
+  for (const sh of seg.shapes) b.addShape(new CANNON.Sphere(sh.r), new CANNON.Vec3(sh.off.x, sh.off.y, sh.off.z));
+  const wp = seg.com.clone().applyQuaternion(g.quaternion).add(g.position);
+  b.position.set(wp.x, wp.y, wp.z);
+  b.quaternion.set(g.quaternion.x, g.quaternion.y, g.quaternion.z, g.quaternion.w);
+  world.addBody(b); seg.body = b;
+}
+function joint(A, B, at, axisA, axisB, angle, twist) {
+  const c = new CANNON.ConeTwistConstraint(A.body, B.body, {
+    pivotA: new CANNON.Vec3(at.x - A.com.x, at.y - A.com.y, at.z - A.com.z),
+    pivotB: new CANNON.Vec3(-B.com.x, -B.com.y, -B.com.z),
+    axisA: new CANNON.Vec3(...axisA).unit(), axisB: new CANNON.Vec3(...axisB).unit(),
+    angle, twistAngle: twist, maxForce: 1e6
+  });
+  c.collideConnected = false;
+  world.addConstraint(c); constraints.push(c);
+}
+function freeProp(obj) {
+  if (obj.parent !== scene) scene.attach(obj);
+  const { box, mass } = obj.userData;
+  const size = box.getSize(new V3()), ctr = box.getCenter(new V3());
+  const b = new CANNON.Body({ mass, linearDamping: 0.05, angularDamping: 0.25 });
+  b.addShape(new CANNON.Box(new CANNON.Vec3(Math.max(size.x, 0.04) / 2, Math.max(size.y, 0.04) / 2, Math.max(size.z, 0.04) / 2)), new CANNON.Vec3(ctr.x, ctr.y, ctr.z));
+  b.position.set(obj.position.x, obj.position.y, obj.position.z);
+  b.quaternion.set(obj.quaternion.x, obj.quaternion.y, obj.quaternion.z, obj.quaternion.w);
+  world.addBody(b); propBodies.set(obj, b);
+}
+function startRagdoll() {
+  if (mode === 'ragdoll') return;
+  falls++;
+  mode = 'ragdoll'; ragTime = 0; stillTime = 0;
+  rig.list.forEach(segBody);
+  const T = rig.segs.torso, d = rig.dims;
+  joint(T, rig.segs.head, d.neck, [0, 1, 0], [0, 1, 0], 0.55, 0.45);
+  joint(T, rig.segs.armL, new V3(-d.sh, d.shY, 0), [-0.3, -1, 0], [0, -1, 0], 2.3, 0.9);
+  joint(T, rig.segs.armR, new V3(d.sh, d.shY, 0), [0.3, -1, 0], [0, -1, 0], 2.3, 0.9);
+  joint(T, rig.segs.legL, new V3(-d.hip, d.hipY, 0), [0, -1, 0], [0, -1, 0], 1.15, 0.3);
+  joint(T, rig.segs.legR, new V3(d.hip, d.hipY, 0), [0, -1, 0], [0, -1, 0], 1.15, 0.3);
+  rig.props.forEach(freeProp);
+  rig.faceIdle.visible = false; rig.faceRd.visible = true;
+  S.status(mode, falls);
+}
+function removePhysics() {
+  constraints.forEach((c) => world.removeConstraint(c)); constraints.length = 0;
+  if (rig) rig.list.forEach((seg) => { if (seg.body) { world.removeBody(seg.body); seg.body = null; } });
+  propBodies.forEach((b) => world.removeBody(b)); propBodies.clear();
+}
+const rnd = (a) => (Math.random() * 2 - 1) * a;
+function addV(b, x, y, z) { b.velocity.x += x; b.velocity.y += y; b.velocity.z += z; }
+function addW(b, v) { b.angularVelocity.x += v.x; b.angularVelocity.y += v.y; b.angularVelocity.z += v.z; }
+function kick(kind, hit) {
+  if (hit && hit.prop && propBodies.has(hit.prop)) {
+    const b = propBodies.get(hit.prop); addV(b, hit.dir.x * 4, 4.5, hit.dir.z * 4); addW(b, new V3(rnd(12), rnd(12), rnd(12))); return;
+  }
+  const fresh = mode !== 'ragdoll';
+  startRagdoll();
+  const fwd = new V3(Math.sin(rootYaw), 0, Math.cos(rootYaw));
+  const B = (n) => rig.segs[n].body;
+  if (kind === 'slip') {
+    ['legL', 'legR'].forEach((n) => addV(B(n), fwd.x * 6 + rnd(0.5), 4.8, fwd.z * 6 + rnd(0.5)));
+    addV(B('torso'), fwd.x * 1.4, 3.4, fwd.z * 1.4);
+    addW(B('torso'), new V3().crossVectors(fwd, UP).multiplyScalar(10));
+    addV(B('head'), -fwd.x * 1.6, 2.6, -fwd.z * 1.6);
+    ['armL', 'armR'].forEach((n) => addV(B(n), rnd(2), 5.5, rnd(2)));
+  } else if (kind === 'wave') {
+    const side = new V3(fwd.z, 0, -fwd.x).multiplyScalar(Math.random() < 0.5 ? -1 : 1);
+    rig.list.forEach((seg) => addV(seg.body, side.x * 6.5 + rnd(0.8), 3.6 + rnd(0.8), side.z * 6.5 + rnd(0.8)));
+    addW(B('torso'), new V3().crossVectors(UP, side).multiplyScalar(7));
+  } else if (kind === 'toss') {
+    rig.list.forEach((seg) => addV(seg.body, rnd(1.3), 8.5 + rnd(0.6), rnd(1.3)));
+    addW(B('torso'), new V3(rnd(9), rnd(5), rnd(9)));
+  } else if (kind === 'push') {
+    const dir = hit.dir;
+    rig.list.forEach((seg) => addV(seg.body, dir.x * 3.6, 2.4, dir.z * 3.6));
+    addV(B(hit.seg), dir.x * 5, 2, dir.z * 5);
+    addW(B('torso'), new V3().crossVectors(UP, dir).multiplyScalar(6));
+  }
+  propBodies.forEach((b) => {
+    if (fresh) { const hv = B('head').velocity; b.velocity.set(hv.x, hv.y, hv.z); }
+    addV(b, rnd(1.5), 3 + Math.random() * 2, rnd(1.5)); addW(b, new V3(rnd(12), rnd(12), rnd(12)));
+  });
+}
+function syncPhysics() {
+  for (const seg of rig.list) {
+    const b = seg.body, g = seg.group;
+    g.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w);
+    g.position.set(b.position.x, b.position.y, b.position.z).sub(seg.com.clone().applyQuaternion(g.quaternion));
+  }
+  propBodies.forEach((b, obj) => { obj.position.set(b.position.x, b.position.y, b.position.z); obj.quaternion.set(b.quaternion.x, b.quaternion.y, b.quaternion.z, b.quaternion.w); });
+}
+function startGetup() {
+  if (mode !== 'ragdoll') return;
+  const tp = rig.segs.torso.group.position;
+  rootPos.set(THREE.MathUtils.clamp(tp.x, -3.8, 3.8), 0, THREE.MathUtils.clamp(tp.z, -2.4, 2.4));
+  for (const o of OBSTACLES) {
+    const dx = rootPos.x - o.x, dz = rootPos.z - o.z, dd = Math.hypot(dx, dz), need = o.r + 0.35;
+    if (dd < need) {
+      if (dd < 1e-3) rootPos.x = o.x + need;
+      else { rootPos.x = o.x + (dx / dd) * need; rootPos.z = o.z + (dz / dd) * need; }
+    }
+  }
+  rootYaw = Math.atan2(camera.position.x - rootPos.x, camera.position.z - rootPos.z);
+  fromMap = new Map();
+  [...rig.list.map((s) => s.group), ...rig.props].forEach((o) => fromMap.set(o, { p: o.position.clone(), q: o.quaternion.clone() }));
+  removePhysics();
+  mode = 'getup'; blendT = 0;
+  S.status(mode, falls);
+}
+const easeOutBack = (x) => { const c1 = 1.5, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); };
+function stepGetup(dt, t) {
+  blendT += dt;
+  const k = Math.min(1, blendT / 0.75), e = easeOutBack(k);
+  const pose = computePose(t);
+  const tp = new V3(), tq = new Q();
+  for (const seg of rig.list) {
+    const f = fromMap.get(seg.group);
+    pose[seg.name].decompose(tp, tq, _s);
+    seg.group.position.lerpVectors(f.p, tp, e);
+    seg.group.quaternion.slerpQuaternions(f.q, tq, Math.min(1, e));
+  }
+  for (const obj of rig.props) {
+    const f = fromMap.get(obj), u = obj.userData;
+    const target = pose[u.parent].clone().multiply(new M4().compose(u.home.pos, u.home.quat, ONE));
+    target.decompose(tp, tq, _s);
+    obj.position.lerpVectors(f.p, tp, Math.min(1, k * 1.15));
+    obj.quaternion.slerpQuaternions(f.q, tq, Math.min(1, k * 1.15));
+  }
+  if (k > 0.45) { rig.faceIdle.visible = true; rig.faceRd.visible = false; }
+  if (k >= 1) {
+    for (const obj of rig.props) { const u = obj.userData; rig.segs[u.parent].group.add(obj); obj.position.copy(u.home.pos); obj.quaternion.copy(u.home.quat); }
+    mode = 'idle'; S.status(mode, falls);
+  }
+}
+
+/* ---------- build / rebuild ---------- */
+function disposeRig(r) {
+  for (const o of r.objects) {
+    scene.remove(o);
+    o.traverse((n) => { if (n.isMesh && !n.userData.outline) { n.geometry.dispose(); if (n.material.map) n.material.map.dispose(); n.material.dispose(); } });
+  }
+  r.props.forEach((p) => { if (p.parent === scene) scene.remove(p); });
+}
+function rebuild() {
+  removePhysics();
+  if (rig) disposeRig(rig);
+  rig = buildCharacter(S.state);
+  mode = 'idle'; S.status(mode, falls);
+  applyPose(computePose(clockT));
+}
+
+/* ---------- input ---------- */
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function pick(e) {
+  const rc = renderer.domElement.getBoundingClientRect();
+  ndc.set(((e.clientX - rc.left) / rc.width) * 2 - 1, -((e.clientY - rc.top) / rc.height) * 2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const targets = [...rig.list.map((s) => s.group), ...rig.props.filter((p) => p.parent === scene)];
+  const hits = ray.intersectObjects(targets, true);
+  for (const h of hits) {
+    if (!h.object.visible) continue;
+    let o = h.object;
+    while (o && !o.userData.seg && !o.userData.prop) o = o.parent;
+    if (!o) continue;
+    if (o.userData.prop) return o.parent === scene ? { prop: o, point: h.point } : { seg: o.userData.parent === 'armR' ? 'armR' : 'head', point: h.point };
+    return { seg: o.userData.seg, point: h.point };
+  }
+  return null;
+}
+let down = null;
+const cvs = renderer.domElement;
+cvs.addEventListener('pointerdown', (e) => { down = [e.clientX, e.clientY]; });
+cvs.addEventListener('pointerup', (e) => {
+  if (!down) return;
+  const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]); down = null;
+  if (moved > 6) return;
+  const hit = pick(e); if (!hit) return;
+  const dir = hit.point.clone().sub(camera.position); dir.y = 0; dir.normalize();
+  hit.dir = dir; kick('push', hit);
+});
+cvs.addEventListener('pointermove', (e) => { if (e.buttons) return; cvs.style.cursor = pick(e) ? 'pointer' : 'grab'; });
+
+S.act = (name) => { if (name === 'getup') startGetup(); else kick(name); };
+S.subs.push(() => rebuild());
+
+/* ---------- resize ---------- */
+let firstSize = true;
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight; if (!w || !h) return;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.fov = camera.aspect < 0.7 ? 46 : 36;
+  camera.updateProjectionMatrix();
+  if (firstSize && camera.aspect < 0.95) camera.position.set(2.0, 1.7, 3.3);
+  firstSize = false;
+}
+new ResizeObserver(resize).observe(stage); resize();
+
+/* ---------- loop ---------- */
+const clock = new THREE.Clock();
+let clockT = 0, frame = 0;
+const wpos = waterGeo.attributes.position;
+function updateWater(t) {
+  const m = MOTION;
+  for (let i = 0; i < wpos.count; i++) {
+    const x = wpos.getX(i), z = wpos.getZ(i);
+    wpos.setY(i, (Math.sin(x * 0.32 + t * 1.2) * 0.13 + Math.cos(z * 0.38 + t * 1.0) * 0.11 + Math.sin((x + z) * 0.9 + t * 2.0) * 0.035) * m);
+  }
+  wpos.needsUpdate = true;
+  if (frame % 2 === 0) waterGeo.computeVertexNormals();
+}
+const camFollow = new V3();
+function tick() {
+  const dt = Math.min(clock.getDelta(), 0.05);
+  clockT += dt; frame++;
+  updateWater(clockT);
+  flag.rotation.y = Math.sin(clockT * 3) * 0.25 * MOTION;
+  clouds.forEach((c, i) => { c.position.x += dt * 0.25 * (i % 2 ? 1 : 0.6) * MOTION; if (c.position.x > 60) c.position.x = -60; });
+
+  if (mode === 'idle') applyPose(computePose(clockT));
+  else if (mode === 'ragdoll') {
+    world.step(1 / 60, dt, 5);
+    syncPhysics();
+    ragTime += dt;
+    const tv = rig.segs.torso.body.velocity.length(), hv = rig.segs.head.body.velocity.length();
+    stillTime = tv < 0.3 && hv < 0.45 ? stillTime + dt : 0;
+    if (stillTime > 1.3 || ragTime > 9) startGetup();
+  } else if (mode === 'getup') stepGetup(dt, clockT);
+
+  const tp = rig.segs.torso.group.position;
+  camFollow.set(THREE.MathUtils.clamp(tp.x, -4, 4), THREE.MathUtils.clamp(tp.y + 0.1, 0.75, 2.2), THREE.MathUtils.clamp(tp.z, -3, 3));
+  const before = controls.target.clone();
+  controls.target.lerp(camFollow, 1 - Math.pow(0.06, dt));
+  camera.position.add(controls.target.clone().sub(before));
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+
+rebuild();
+S.ready = true;
+document.getElementById('loading').hidden = true;
+requestAnimationFrame(tick);
+</script>

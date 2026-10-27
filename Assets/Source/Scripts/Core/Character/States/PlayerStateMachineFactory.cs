@@ -26,6 +26,7 @@ namespace RumOverboard.Core.Character.States
                 .AddState(new SwimmingState())
                 .AddState(new SteeringState())
                 .AddState(new HoldingRopeState())
+                .AddState(new CarryingState())
                 .AddState(drink);
 
             // --- Free locomotion: only when not attached to something ---
@@ -41,9 +42,10 @@ namespace RumOverboard.Core.Character.States
             machine
                 .AddActivate(PlayerState.Climbing,
                     c => c.InteractPressed && c.ClimbTarget != null && !IsAttached(c) && c.ControlAuthority > 0.5f
-                         && !c.Machine.IsActive(PlayerState.HoldingRope))
+                         && !c.Machine.IsActive(PlayerState.HoldingRope) && !c.Machine.IsActive(PlayerState.Carrying))
                 .AddActivate(PlayerState.Steering,
-                    c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f);
+                    c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f
+                         && !c.Machine.IsActive(PlayerState.Carrying));
             // HoldingRope (a line end in hand) is driven by NetworkPlayer: take / tie / drop.
 
             // --- Detach: Interact again, the state asked to let go, or knocked out ---
@@ -51,10 +53,10 @@ namespace RumOverboard.Core.Character.States
                 .AddDeactivate(Attached,
                     c => IsAttached(c) && (c.InteractPressed || c.ReleaseRequested || c.ControlAuthority < 0.3f));
 
-            // --- Action layer: rum on its own key ---
+            // --- Action layer: a sip from the bottle in hand (Q) ---
             machine
                 .AddActivate(PlayerState.DrinkingRum,
-                    c => c.DrinkPressed
+                    c => c.DrinkPressed && c.CanDrink
                          && !c.Machine.IsActive(PlayerState.Steering)
                          && !c.Machine.IsActive(PlayerState.HoldingRope)
                          && !c.Machine.IsActive(PlayerState.Swimming)

@@ -1189,6 +1189,9 @@ namespace RumOverboard.EditorTools.ShipSandbox
             {
                 PrefabUtility.UnloadPrefabContents(root);
             }
+
+            // Crew attributes (stamina…): AttributesComponent + NetworkAttributes on the prefab.
+            Stamina.StaminaSetup.EnsurePlayerPrefab();
         }
 
         // =========================================================================================
