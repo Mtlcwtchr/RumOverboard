@@ -1,0 +1,43 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 237068c801a475340a8c839ce1eb23b2, type: 3}
+  m_Name: Compass
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributeProfile
+  parent: {fileID: 0}
+  attributes:
+  - Attribute: {fileID: 11400000, guid: 833a5d79bb227cf4d87c442c4d38220c, type: 2}
+    BaseValue: 0.5
+  - Attribute: {fileID: 11400000, guid: b39c45145735d7c4e8f7106b4e45e05a, type: 2}
+    BaseValue: 20
+  - Attribute: {fileID: 11400000, guid: 430f3b496a158ea449c35eb4f3815874, type: 2}
+    BaseValue: 10
+  - Attribute: {fileID: 11400000, guid: be159e9d4cf7f864193fa9be48e9d5d4, type: 2}
+    BaseValue: 1
+  flags:
+  - {fileID: 11400000, guid: acc05281813b9794798bc60b92d7797d, type: 2}
+  - {fileID: 11400000, guid: 1e43b1c88a54892458640249284fd46a, type: 2}
+  - {fileID: 11400000, guid: 8dfc1604a34d50a49a9e768424b19b5b, type: 2}
+  data:
+  - rid: 286334168066162775
+  - rid: 286334168066162776
+  references:
+    version: 2
+    RefIds:
+    - rid: 286334168066162775
+      type: {class: DisplayData, ns: RumOverboard.Gameplay.Attributes, asm: Assembly-CSharp}
+      data:
+        DisplayName: "\u041A\u043E\u043C\u043F\u0430\u0441"
+        Description: 
+    - rid: 286334168066162776
+      type: {class: CompassData, ns: RumOverboard.Gameplay.Items, asm: Assembly-CSharp}
+      data:
+        NeedleWobble: 2

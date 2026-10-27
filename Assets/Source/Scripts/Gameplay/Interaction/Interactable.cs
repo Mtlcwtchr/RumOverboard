@@ -16,6 +16,9 @@ namespace RumOverboard.Gameplay.Interaction
         RopeEnd = 5,
         Yard = 6,
         Oar = 7,
+        Item = 8,    // pick up a physical item
+        Storage = 9, // put the carried item in / take one out (chest)
+        WaterSource = 10, // fill the carried bucket (water cask)
     }
 
     /// <summary>Who is looking at / using an interactable (host sim or local HUD).</summary>
@@ -27,17 +30,26 @@ namespace RumOverboard.Gameplay.Interaction
         /// <summary>Line index this crew member is holding (on <see cref="HeldShip"/>), -1 = hands free.</summary>
         public readonly int HeldLine;
         public readonly RumOverboard.Networking.NetworkShip HeldShip;
+        /// <summary>Item in hands (NetworkObject id), default = none.</summary>
+        public readonly NetworkId Carried;
+        /// <summary>Heaviest item (kg) this crew member can lift (CarryCapacity attribute).</summary>
+        public readonly float CarryCapacity;
 
-        public bool HandsFree => HeldLine < 0;
+        /// <summary>No line and no item in hands.</summary>
+        public bool HandsFree => HeldLine < 0 && !Carried.IsValid;
+        public bool IsCarrying => Carried.IsValid;
 
         public InteractorInfo(PlayerRef player, Vector3 eye, Vector3 feet,
-            int heldLine = -1, RumOverboard.Networking.NetworkShip heldShip = null)
+            int heldLine = -1, RumOverboard.Networking.NetworkShip heldShip = null,
+            NetworkId carried = default, float carryCapacity = float.MaxValue)
         {
             Player = player;
             Eye = eye;
             Feet = feet;
             HeldLine = heldLine;
             HeldShip = heldShip;
+            Carried = carried;
+            CarryCapacity = carryCapacity;
         }
     }
 

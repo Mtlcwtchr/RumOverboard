@@ -19,7 +19,7 @@ namespace RumOverboard.Core.Character.States
 
         public override PlayerState Id => PlayerState.DrinkingRum;
         public override PlayerState CompatibleWith =>
-            PlayerState.Grounded | PlayerState.InAir | PlayerState.Climbing;
+            PlayerState.Grounded | PlayerState.InAir | PlayerState.Climbing | PlayerState.Carrying;
 
         public override void Enter(StateContext ctx)
         {
@@ -34,7 +34,9 @@ namespace RumOverboard.Core.Character.States
         public override void FixedTick(StateContext ctx)
         {
             float duration = ctx.Config != null ? ctx.Config.RumSipDuration : 2f;
-            float perSip = ctx.Config != null ? ctx.Config.RumSipIntoxication : 0.15f;
+            // The bottle in hand decides how strong a sip is (DrinkData); GameConfig is the fallback.
+            float perSip = ctx.SipIntoxication > 0f ? ctx.SipIntoxication
+                         : ctx.Config != null ? ctx.Config.RumSipIntoxication : 0.15f;
 
             _elapsed += ctx.DeltaTime;
             float rate = perSip / Mathf.Max(0.01f, duration);
@@ -52,6 +54,19 @@ namespace RumOverboard.Core.Character.States
         {
             // On clients: e.g. show a sip counter / splash. Data already decoded.
         }
+    }
+
+    /// <summary>
+    /// One item in hands (GDD §26.3: one at a time, no personal inventory). Action layer over
+    /// Grounded / InAir / Swimming (+ a sip from the bottle you hold). Started and ended by the driver
+    /// (pick up / put down / throw / store), like HoldingRope; climbing and the helm need free hands.
+    /// The item itself is driven to the hold point by the carry system.
+    /// </summary>
+    public sealed class CarryingState : PlayerStateBase
+    {
+        public override PlayerState Id => PlayerState.Carrying;
+        public override PlayerState CompatibleWith =>
+            PlayerState.Grounded | PlayerState.InAir | PlayerState.Swimming | PlayerState.DrinkingRum;
     }
 }
 

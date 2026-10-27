@@ -26,6 +26,7 @@ namespace RumOverboard.StateMachine
         Steering = 1u << 4, // standing at the helm; body locked, A/D turns the wheel
         HoldingRope = 1u << 5, // a line end in hand (action layer): LMB hauls, RMB eases, E on a pin ties, G drops
         Rowing = 1u << 6,      // at a sweep (long oar); body locked, W/S pulls / backs in rhythm
+        Carrying = 1u << 7,    // one item in hands (action layer, GDD §26.3): G puts down, LMB throws, Q uses, E stores
 
         // Action group — layered on top of locomotion.
         DrinkingRum = 1u << 8,
@@ -106,8 +107,23 @@ namespace RumOverboard.StateMachine
         // writes it back to the networked state after the tick.
         public float Drunkenness;
 
+        // Stamina gates (filled by the driver from the crew member's attributes; all open without them).
+        public bool CanSprint = true;
+        public bool CanJump = true;
+        /// <summary>Climb / swim speed multiplier (below 1 while exhausted).</summary>
+        public float StaminaSpeedFactor = 1f;
+
+        // Item in hands (filled by the driver): walk / swim slowdown from its weight, and the drink it allows.
+        public float CarrySpeedFactor = 1f;
+        public bool CanDrink;           // holding a bottle with sips left
+        public float SipIntoxication;   // intoxication of one sip of that bottle (0 = GameConfig default)
+
         // Output read back by the driver.
         public float PlanarSpeed;
+
+        // Effort this tick (reset by the driver before the tick; the stamina model charges for it).
+        public bool Sprinting; // sprint held, allowed and actually moving (deck or rail)
+        public bool Jumped;    // a jump / swim lunge was executed
 
         // Structured data a state wants to broadcast this tick (optional).
         private IStatePayload _pendingPayload;

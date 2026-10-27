@@ -21,7 +21,9 @@ namespace RumOverboard.Core.Sim
             public static readonly List<T> Items = new();
         }
 
-        private static readonly Dictionary<Collider, Component> ByCollider = new();
+        // A collider can resolve to several data components of different kinds (an item is both an
+        // Interactable and an AttributesComponent), so each collider keeps a short list.
+        private static readonly Dictionary<Collider, List<Component>> ByCollider = new();
 
         public static void Add<T>(T component) where T : class
         {
@@ -43,8 +45,14 @@ namespace RumOverboard.Core.Sim
             if (owner == null || colliders == null)
                 return;
             for (int i = 0; i < colliders.Count; i++)
-                if (colliders[i] != null)
-                    ByCollider[colliders[i]] = owner;
+            {
+                Collider c = colliders[i];
+                if (c == null) continue;
+                if (!ByCollider.TryGetValue(c, out List<Component> bound))
+                    ByCollider[c] = bound = new List<Component>(2);
+                bound.Remove(owner);
+                bound.Add(owner); // most recent binding wins among components of the same kind
+            }
         }
 
         public static void UnbindColliders(Component owner, IReadOnlyList<Collider> colliders)
@@ -54,7 +62,10 @@ namespace RumOverboard.Core.Sim
             for (int i = 0; i < colliders.Count; i++)
             {
                 Collider c = colliders[i];
-                if (c != null && ByCollider.TryGetValue(c, out Component bound) && bound == owner)
+                if (c == null || !ByCollider.TryGetValue(c, out List<Component> bound))
+                    continue;
+                bound.Remove(owner);
+                if (bound.Count == 0)
                     ByCollider.Remove(c);
             }
         }
@@ -62,10 +73,17 @@ namespace RumOverboard.Core.Sim
         public static bool TryGetByCollider<T>(Collider collider, out T component) where T : Component
         {
             component = null;
-            if (collider == null || !ByCollider.TryGetValue(collider, out Component bound) || bound == null)
+            if (collider == null || !ByCollider.TryGetValue(collider, out List<Component> bound))
                 return false;
-            component = bound as T;
-            return component != null;
+            for (int i = bound.Count - 1; i >= 0; i--)
+            {
+                if (bound[i] is T match && match != null)
+                {
+                    component = match;
+                    return true;
+                }
+            }
+            return false;
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]

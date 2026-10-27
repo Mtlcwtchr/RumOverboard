@@ -27,6 +27,7 @@ namespace RumOverboard.Core.Character.States
                 .AddState(new SteeringState())
                 .AddState(new RowingState())
                 .AddState(new HoldingRopeState())
+                .AddState(new CarryingState())
                 .AddState(drink);
 
             // --- Free locomotion: only when not attached to something ---
@@ -42,12 +43,13 @@ namespace RumOverboard.Core.Character.States
             machine
                 .AddActivate(PlayerState.Climbing,
                     c => c.InteractPressed && c.ClimbTarget != null && !IsAttached(c) && c.ControlAuthority > 0.5f
-                         && !c.Machine.IsActive(PlayerState.HoldingRope))
+                         && !c.Machine.IsActive(PlayerState.HoldingRope) && !c.Machine.IsActive(PlayerState.Carrying))
                 .AddActivate(PlayerState.Steering,
-                    c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f)
+                    c => c.InteractPressed && c.HelmTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f
+                         && !c.Machine.IsActive(PlayerState.Carrying))
                 .AddActivate(PlayerState.Rowing,
                     c => c.InteractPressed && c.OarTarget != null && !IsAttached(c) && !c.InWater && c.ControlAuthority > 0.5f
-                         && !c.Machine.IsActive(PlayerState.HoldingRope));
+                         && !c.Machine.IsActive(PlayerState.HoldingRope) && !c.Machine.IsActive(PlayerState.Carrying));
             // HoldingRope (a line end in hand) is driven by NetworkPlayer: take / tie / drop.
 
             // --- Detach: Interact again (unless it's aimed at something worked from the rigging, e.g. a
@@ -56,10 +58,10 @@ namespace RumOverboard.Core.Character.States
                 .AddDeactivate(Attached,
                     c => IsAttached(c) && ((c.InteractPressed && !UsesFromRail(c)) || c.ReleaseRequested || c.ControlAuthority < 0.3f));
 
-            // --- Action layer: rum on its own key ---
+            // --- Action layer: a sip from the bottle in hand (Q) ---
             machine
                 .AddActivate(PlayerState.DrinkingRum,
-                    c => c.DrinkPressed
+                    c => c.DrinkPressed && c.CanDrink
                          && !c.Machine.IsActive(PlayerState.Steering)
                          && !c.Machine.IsActive(PlayerState.Rowing)
                          && !c.Machine.IsActive(PlayerState.HoldingRope)

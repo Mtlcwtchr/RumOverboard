@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 428e66eafa138824cb23a35ae987f7a9, type: 3}
+  m_Name: ItemCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Items.ItemCatalog
+  Items:
+  - Id: Barrel
+    Prefab: {fileID: 6701785180796903172, guid: b44c01121f7ff9b4d8f5ce75d1ef4dda, type: 3}
+  - Id: PowderBarrel
+    Prefab: {fileID: 6243611966833829568, guid: cf1195edf12b42946a3567414eaf2b3e, type: 3}
+  - Id: Board
+    Prefab: {fileID: 785555860706564980, guid: 569ca605f18124b4cbc5503e31775627, type: 3}
+  - Id: Crate
+    Prefab: {fileID: 3902964877336972217, guid: be1a1d91dbcc15947bd7d7656bdd177b, type: 3}
+  - Id: GrogBottle
+    Prefab: {fileID: 8218181543237370570, guid: 3bda36009fe6b914f83ebb9f9073a5d5, type: 3}
+  - Id: Spyglass
+    Prefab: {fileID: 8072655551979874333, guid: f9fe41502cd6dd744902a65b7c5107a4, type: 3}
+  - Id: Compass
+    Prefab: {fileID: 5046964951921066205, guid: d56c30927b9b8244a830a1a97c488d5d, type: 3}
+  - Id: Chest
+    Prefab: {fileID: 566256994498320950, guid: 8bf1b1b2133e5064398438df85887077, type: 3}
+  - Id: Bucket
+    Prefab: {fileID: 733998623060302674, guid: c55166deadde62443afa7f341d4baaf6, type: 3}
+  - Id: Lantern
+    Prefab: {fileID: 5755953221289571238, guid: 5dfc0118829cb544f885748498090405, type: 3}
+  - Id: WaterCask
+    Prefab: {fileID: 4915712194613428351, guid: 4d48538cd7f775d49b4168b4fb4b38ee, type: 3}

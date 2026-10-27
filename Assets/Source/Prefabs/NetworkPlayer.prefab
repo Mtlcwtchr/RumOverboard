@@ -16,6 +16,8 @@ GameObject:
   - component: {fileID: 1770048248104826772}
   - component: {fileID: 839439154403493375}
   - component: {fileID: 8055694700671648536}
+  - component: {fileID: 7342449899763328260}
+  - component: {fileID: 7645902949317658096}
   m_Layer: 9
   m_Name: NetworkPlayer
   m_TagString: Untagged
@@ -59,6 +61,7 @@ MonoBehaviour:
   NetworkedBehaviours:
   - {fileID: 5718430904413740137}
   - {fileID: 3873671029557334856}
+  - {fileID: 7645902949317658096}
   ForceRemoteRenderTimeframe: 0
 --- !u!54 &6064721864693198259
 Rigidbody:
@@ -206,6 +209,33 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.JumpColliderDriver
   capsule: {fileID: 1770048248104826772}
   tuckShrink: 0
+--- !u!114 &7342449899763328260
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1645968105358303221}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 345e61fe22ac122448a59365c45cdff2, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.AttributesComponent
+  profile: {fileID: 11400000, guid: 2991de46ba87bc741a6d82d004ef1371, type: 2}
+  overrides: []
+  selfTick: 1
+--- !u!114 &7645902949317658096
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1645968105358303221}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 43d849b130c80df43bb6191340827361, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::RumOverboard.Gameplay.Attributes.NetworkAttributes
 --- !u!1 &1668063109836335473
 GameObject:
   m_ObjectHideFlags: 0

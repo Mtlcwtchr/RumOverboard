@@ -66,6 +66,17 @@ namespace RumOverboard.Gameplay.UI
             {
                 new StateHintSet
                 {
+                    State = PlayerState.Carrying,
+                    Hints = new[]
+                    {
+                        new ControlHint("G", "Положить"),
+                        new ControlHint("ЛКМ", "Бросить"),
+                        new ControlHint("Q", "Использовать (бутылка — глоток, труба — смотреть, ведро — выплеснуть)"),
+                        new ControlHint("E на сундук", "Убрать в сундук"),
+                    },
+                },
+                new StateHintSet
+                {
                     State = PlayerState.HoldingRope,
                     Hints = new[]
                     {
@@ -122,8 +133,7 @@ namespace RumOverboard.Gameplay.UI
             {
                 new ControlHint("WASD", "Идти"),
                 new ControlHint("Space", "Прыжок"),
-                new ControlHint("E", "Действие (по прицелу)"),
-                new ControlHint("Q", "Глоток рома"),
+                new ControlHint("E", "Действие / взять предмет (по прицелу)"),
                 new ControlHint("R", "Регдолл"),
             };
         }

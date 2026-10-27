@@ -316,6 +316,9 @@ namespace RumOverboard.Networking
                 : runner.IsServer;
             if (!shouldSpawn || _players.ContainsKey(player)) return;
 
+            // Feature scenes without crew (e.g. AttributesScene) leave the player prefab empty.
+            if (!playerPrefab.IsValid) return;
+
             SpawnFor(runner, player);
 
             // In host mode this no-ops after the first successful ship spawn.

@@ -45,6 +45,54 @@ the same session for co-op testing.
 - Debug UI: `SailFeatureDebugWindow` (mast count/types + force/stress tuning).
 - Config asset: `Assets/Source/Configs/FeatureScenes/SailFeatureConfig.asset`.
 
+## AttributesScene
+
+- Scene file: `Assets/Scenes/AttributesScene.unity` (no water; in Build Settings).
+- Rebuild: **RumOverboard → Attributes → ★ Build Sandbox** (sample assets + registry + scene).
+- Focus: entity attributes, flags, timed effects, effect zones (Cold / Wet), replication via `NetworkAttributes`.
+- Networking: `ConnectionManager` auto host-or-client, no crew/ship prefabs; entities are scene NetworkObjects.
+- Tests: **Run Sandbox Smoke** (one editor) and **Run Network Smoke (MPPM host + client)**.
+- Debug UI: `AttributesDebugWindow` (F6) — edit base/resources/flags, apply/remove effects, reset, save to profile.
+- Config assets: `Assets/Source/Configs/Attributes/`. Docs: `Assets/Source/Docs/Attributes.md`.
+
+## StaminaScene
+
+- Scene file: `Assets/Scenes/StaminaScene.unity` — the ship sandbox (brig, calm sea) built by
+  **RumOverboard → Stamina → ★ Build Stamina Scene**.
+- Focus: crew stamina — sprint / jump on deck, climb a mast, haul a line, swim; exhaustion and recovery.
+- Debug UI: `StaminaDebugWindow` (F7, open) — live tuning, Fill/Empty, reset, save to the Player profile; F6 attributes.
+- Tests: **Stamina → Run Self-Test**, **Stamina → Run Smoke (Play Mode)**. Docs: `Assets/Source/Docs/Stamina.md`.
+
+## CrewRagdollScene — rum / intoxication
+
+- Built by Ship Sandbox → Build Feature Scenes. Debug UI: `CrewRagdollDebugWindow` (F5) — sips, ragdoll,
+  GameConfig tuning + sober-up rate (Player profile attribute).
+- Intoxication is the crew attribute `Drunkenness`. Tests: **Intoxication → Run Self-Test / Run Smoke (Play Mode)**.
+  Docs: `Assets/Source/Docs/Intoxication.md`.
+
+## ItemsScene
+
+- Scene file: `Assets/Scenes/ItemsScene.unity` — ship sandbox (calm) built by **RumOverboard → Items → ★ Build Items Scene**.
+- Focus: physical items — pick up / carry / put down / throw, chest storage, breaking, floating, bottle / spyglass / compass.
+- Debug UI: `ItemsDebugWindow` (F8, open) — spawn, give, damage, break, refill; item profiles in F6.
+- Tests: **Items → Run Self-Test**, **Items → Run Smoke (Play Mode)**. Docs: `Assets/Source/Docs/Items.md`.
+
+## FireScene
+
+- Scene file: `Assets/Scenes/FireScene.unity` — ship sandbox (calm) built by **RumOverboard → Fire → ★ Build Fire Scene**.
+- Focus: burning items and spread, powder explosions, lanterns, bucket firefighting (water cask / sea refill).
+- Debug UI: `FireDebugWindow` (F9, open) — ignite / put out / explode, FireConfig live tuning, reset, save to config; F8 items, F6 attributes.
+- Config asset: `Assets/Source/Configs/Fire/FireConfig.asset`.
+- Tests: **Fire → Run Self-Test**, **Fire → Run Smoke (Play Mode)**. Docs: `Assets/Source/Docs/Fire.md`.
+
+## PlaytestScene — everything together
+
+- Scene file: `Assets/Scenes/PlaytestScene.unity` — built by **RumOverboard → Playtest → ★ Build Playtest Scene**:
+  the ship sandbox (calm) + items, chest, loot in the water, fire pile, powder, lantern, buckets, water cask.
+- All debug windows F2–F9 (closed), F1 help + network status / reconnect (`PlaytestBoot`).
+- Player build: **Playtest → Build Windows Player** → `Builds/Playtest/RumOverboard.exe` (starts in this scene) + .bat launchers
+  incl. an automated two-window network self-test. Docs: `Assets/Source/Docs/Playtest.md`.
+
 ## SailFurlScene / ShipStatusScene
 
 - Scene files: `Assets/Scenes/SailFurlScene.unity` (calm, F7 open), `Assets/Scenes/ShipStatusScene.unity`

@@ -261,6 +261,8 @@ namespace RumOverboard.Gameplay
             HintOverlay hints = HintOverlay.Ensure();
             hints.SetState(_target.ActiveStates);
             hints.SetDrunkenness(_target.Drunkenness);
+            hints.SetStamina(_target.Stamina01, _target.IsExhausted,
+                _target.Attributes != null && _target.Attributes.Has(RumOverboard.Gameplay.Attributes.Attr.Stamina));
 
             _focus = null;
             _focusRef = default;
